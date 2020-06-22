@@ -1,5 +1,6 @@
 results
-hdiff.cabal
+hspell.cabal
+*.wl
 dist
 dist-*
 cabal-dev

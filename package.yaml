@@ -1,0 +1,47 @@
+name:        hspell
+version:     0.0.0
+synopsis:    Spell-checking prototype in Haskell
+maintainer:  Victor Miraldo <v.cacciarimiraldo@gmail.com>
+github:      VictorCMiraldo/hspell
+category:    Other
+
+dependencies:
+  - base >= 4.9 && < 5
+  - bytestring
+  - bytestring-trie
+  - containers
+  - data-default
+  - text
+  - text-metrics
+
+library:
+  source-dirs: src/
+  ghc-options: -O2 -Wall
+
+# tests:
+#   spec:
+#     main: Spec.hs
+#     source-dirs:
+#       - tests
+#     dependencies:
+#       - hdiff
+# 
+# executables:
+#   hdiff:
+#     source-dirs:
+#       - executable
+#     main: HDiff.hs
+#     dependencies:
+#       - parsec
+#       - gitrev
+#       - optparse-applicative
+#       - language-lua
+#       - language-java
+#       - language-ecmascript
+#       - language-bash
+#       - language-python
+#       - time
+#       - deepseq
+#       - hdiff
+#     # cpp-options: -DREAL_LANGUAGES
+#     ghc-options: -XCPP -O2 -Woverlapping-patterns -Winaccessible-code -Wincomplete-patterns -Wincomplete-uni-patterns -Wincomplete-record-updates

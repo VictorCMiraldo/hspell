@@ -1,0 +1,5 @@
+resolver: lts-16.0
+packages: 
+  - .
+extra-deps:
+  - bytestring-trie-0.2.5.0@sha256:9efa9c6f556314d28486be2470ff789419c5238ed2e354870623a3cbbd28fbe2,3349
