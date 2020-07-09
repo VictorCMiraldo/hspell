@@ -195,6 +195,13 @@ loadDictL dc fs = do
 -------------------
 -------------------
 
+largeDict1 :: IO Dict
+largeDict1 = do ed <- loadDict def "dict/en-single-file.wl"
+                case ed of
+                  Left err -> error err
+                  Right d  -> return d
+
+
 largeDict :: IO Dict
 largeDict = do ed <- loadDictL def dictFiles
                case ed of
