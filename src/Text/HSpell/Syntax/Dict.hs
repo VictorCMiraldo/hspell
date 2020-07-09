@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 -- |Defines the syntactical dictionary responsible for
 -- performing spelling checks and suggestions.
@@ -19,6 +20,9 @@ import           Data.List (foldl')
 import qualified Data.Trie             as Tr
 import qualified Data.Trie.Convenience as Tr
 import qualified Data.Set  as S
+
+import Control.Exception
+import Control.Concurrent
 
 import Text.HSpell.Util
 
@@ -138,15 +142,66 @@ genEntriesFor d t = let ts   = candidates d t
                      in (t , DictEntry True S.empty)
                       : map (\t' -> (t' , DictEntry False forT)) ts
 
+-------------------
+-------------------
+
+-- Concurrent dict loading?
+
+type Children t = MVar [MVar (Either SomeException t)]
+
+waitForChildren :: Children t -> IO (Either SomeException [t])
+waitForChildren children = do
+  cs <- takeMVar children
+  case cs of
+    []   -> return (Right [])
+    m:ms -> do
+       putMVar children ms
+       x  <- takeMVar m
+       xs <- waitForChildren children
+       return $ (:) <$> x <*> xs
+
+forkChild :: Children t -> IO t -> IO ThreadId
+forkChild children io = do
+    mvar   <- newEmptyMVar
+    childs <- takeMVar children
+    putMVar children (mvar:childs)
+    tid <- forkFinally io (\res -> putMVar mvar res)
+    putStrLn ("Forked: " ++ show tid)
+    return tid
+
+loadDictL :: DictConfig -> [FilePath] -> IO (Either ParseError Dict)
+loadDictL dc fs = do
+  children <- newMVar []
+  ds       <- either throw sequence
+              <$> mapConcIO children (loadDict dc) fs
+  return (either (Left . id) (Right . combineDicts) ds) 
+ where
+    combineDicts :: [Dict] -> Dict
+    combineDicts ds =
+      let trs = map dTrie ds
+       in case trs of
+            []      -> empty dc
+            (t:ts) -> Dict dc (foldl' (Tr.mergeBy mergeEntry) t ts)
+
+    mergeEntry :: DictEntry -> DictEntry -> Maybe DictEntry
+    mergeEntry x y = Just $! x <> y
+   
+    mapConcIO :: Children t -> (a -> IO t) -> [a] -> IO (Either SomeException [t])
+    mapConcIO children f as = do
+      _ <- mapM (forkChild children . f) as
+      waitForChildren children
+
 
 -------------------
 -------------------
 
 largeDict :: IO Dict
-largeDict = do ed <- loadDict def "dict.wl"
+largeDict = do ed <- loadDictL def dictFiles
                case ed of
                  Left err -> error err
                  Right d  -> return d
+   where
+     dictFiles = [ "dict/en/" ++ c:".wl" | c <- ['a' .. 'z'] ]
 
 smallDict :: Dict
 smallDict = case buildDict def t of

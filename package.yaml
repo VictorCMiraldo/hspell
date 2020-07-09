@@ -18,6 +18,14 @@ library:
   source-dirs: src/
   ghc-options: -O2 -Wall
 
+executables:
+  hspell:
+    source-dirs:
+      - executable
+    main: Main.hs
+    dependencies:
+      - hspell
+
 # tests:
 #   spec:
 #     main: Spec.hs

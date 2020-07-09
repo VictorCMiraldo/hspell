@@ -1,5 +1,6 @@
 
 module Text.HSpell.POS where
+{-
 
 data PartOfSpeech
   = Noum            -- ^ @(n.)@: refers to a person place or thing.
@@ -20,3 +21,5 @@ data VerbForm
   | PresentParticiple -- | @(p. pr.)@: eat, /eating/. 
   | Transitive        -- | @(v. t.)@: a verb that has an object.
   | Intrantitive      -- | @(v. i.)@: a verb that has no object.
+
+-}
