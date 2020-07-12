@@ -18,13 +18,20 @@ import qualified Data.Text.Metrics  as T (damerauLevenshtein)
 import           Data.Maybe (mapMaybe)
 import           Data.List (foldl')
 import           Data.Word (Word32)
-import qualified Data.HashMap.Strict as HM
+import qualified Data.Trie as Tr
+import qualified Data.Trie.Convenience as Tr
 import qualified Data.Set           as S
 
 import Control.Exception
 import Control.Concurrent
 
+import Text.HSpell.Syntax.POS
 import Text.HSpell.Util
+
+data DictEntry = DictEntry
+  { dePOS  :: [PartOfSpeech]
+  , deFreq :: Int
+  } deriving (Eq , Show)
 
 -- |Dictionary configuration. 
 data DictConfig = DictConfig
@@ -33,16 +40,16 @@ data DictConfig = DictConfig
   } deriving (Eq , Show)
 
 instance Default DictConfig where
-  def = DictConfig 2 5
+  def = DictConfig 2 4
 
 -- |A Dictionary is a @bytestring-trie@ with `DictEntry`.
 --
 -- TODO: Experiment with hashtables!
 -- TODO: Experiment with compact package
 data Dict = Dict
-  { dConf    :: ! DictConfig                       -- ^ Stores config parameters.
-  , dCorrect :: ! (HM.HashMap Word32 (S.Set Text)) -- ^ Stores the actual dictionary
-  , dDeletes :: ! (HM.HashMap Word32 (S.Set Text)) -- ^ Stores deletions
+  { dConf    :: ! DictConfig             -- ^ Stores config parameters.
+  , dCorrect :: ! (Tr.Trie DictEntry)    -- ^ Stores the actual dictionary
+  , dDeletes :: ! (Tr.Trie (S.Set Text)) -- ^ Stores deletions
   } 
 
 combineDicts :: DictConfig -> [Dict] -> Dict
@@ -50,40 +57,40 @@ combineDicts dc []       = empty dc
 combineDicts dc ds@(_:_) =
   let cors = map dCorrect ds
       dels = map dDeletes ds
-   in Dict dc (go cors) (go dels)
+   in Dict dc (go (error "Overlapping entries") cors) (go S.union dels)
  where
-   go :: [HM.HashMap Word32 (S.Set Text)] -> HM.HashMap Word32 (S.Set Text)
-   go []     = HM.empty
-   go [x]    = x
-   go (x:xs) = HM.unionWith S.union x (go xs)
+   go :: (a -> a -> a) -> [Tr.Trie a] -> Tr.Trie a
+   go _ []     = Tr.empty
+   go _ [x]    = x
+   go f (x:xs) = Tr.mergeBy (\a b -> Just $! f a b) x (go f xs)
 
 
-dictOnCorrect :: (HM.HashMap Word32 (S.Set Text) -> HM.HashMap Word32 (S.Set Text))
+dictOnCorrect :: (Tr.Trie DictEntry -> Tr.Trie DictEntry)
               -> Dict -> Dict
 dictOnCorrect f d = d { dCorrect = f (dCorrect d) }
 
-dictOnDeletes :: (HM.HashMap Word32 (S.Set Text) -> HM.HashMap Word32 (S.Set Text))
+dictOnDeletes :: (Tr.Trie (S.Set Text) -> Tr.Trie (S.Set Text))
               -> Dict -> Dict
 dictOnDeletes f d = d { dDeletes = f (dDeletes d) }
 
 -- |Empy dictionary
 empty :: DictConfig -> Dict
-empty dc = Dict dc HM.empty HM.empty
+empty dc = Dict dc Tr.empty Tr.empty
 
 -- |Inserts an correct entry into the dictionary; 
-insertCorrect :: Text -> Dict -> Dict
-insertCorrect t = dictOnDeletes (HM.insertWith S.union (djb2 t) (S.singleton t))
+insertCorrect :: Text -> DictEntry -> Dict -> Dict
+insertCorrect t = dictOnCorrect . Tr.insert (T.encodeUtf8 t)
 
 insertDeletes :: Text -> Text -> Dict -> Dict
-insertDeletes t dt = dictOnDeletes (HM.insertWith S.union (djb2 dt) (S.singleton t))
+insertDeletes t dt = dictOnDeletes (Tr.insertWith S.union (T.encodeUtf8 dt) (S.singleton t))
 
 -- |Looking up whether a word belongs in the dictionary /does not/
 -- return spelling suggestions, use 'spellcheck' for that purpose.
 lookupCorrect :: Text -> Dict -> Bool
-lookupCorrect t = maybe False (S.member t) . HM.lookup (djb2 t) . dCorrect
+lookupCorrect t = maybe False (const True) . Tr.lookup (T.encodeUtf8 t) . dCorrect
 
 lookupSuggestions :: Text -> Dict -> Maybe (S.Set Text)
-lookupSuggestions t = HM.lookup (djb2 t) . dDeletes
+lookupSuggestions t = Tr.lookup (T.encodeUtf8 t) . dDeletes
 
 -- |Generates candidates for a given text.
 candidates :: Dict -> Text -> [Text]
@@ -113,6 +120,7 @@ refineFor dc t = S.filter (\ u -> T.damerauLevenshtein t u <= dcMaxDistance dc)
 spellcheck :: Text -> Dict -> Maybe (S.Set Text)
 spellcheck t d = refineFor (dConf d) t <$> spellcheck' t d
 
+{-
 ------------------------------
 -- * Loading a Dictionary * --
 ------------------------------
@@ -129,17 +137,12 @@ loadDict dc f = buildDict dc <$> T.readFile f
 buildDict :: DictConfig -> Text -> Either ParseError Dict
 buildDict dc = foldl' (\pe t -> pe >>= go t) (return $ empty dc) . T.lines
   where
-    -- for now, returns just the word in a line separated by ';'.
-    -- later, will return POS too
-    parseLine :: Text -> Either ParseError Text
-    parseLine t = case T.splitOn ";" t of
-                    []    -> Left ("can't parse: " ++ show t)
-                    (x:_) -> Right x
-    
     go :: Text -> Dict -> Either ParseError Dict
-    go t d = do tl <- parseLine t
+    go t d = do (tl , f , pos) <- parseLine t
+                let de = DictEntry pos f
                 let es = candidates d tl
-                return $ foldl' (\d' dt -> insertDeletes tl dt d') (insertCorrect tl d) es
+                return $ foldl' (\d' dt -> insertDeletes tl dt d')
+                                (insertCorrect tl de d) es
 
 -------------------
 -------------------
@@ -184,12 +187,13 @@ loadDictL dc fs = do
 -------------------
 -------------------
 
-largeDict1 :: IO Dict
-largeDict1 = do ed <- loadDict def "dict/en-80k.txt"
-                case ed of
-                  Left err -> error err
-                  Right d  -> return d
+largeDict :: IO Dict
+largeDict = do ed <- loadDict def "dict/en-with-freq.wl"
+               case ed of
+                 Left err -> error err
+                 Right d  -> return d
 
+{-
 
 largeDict :: IO Dict
 largeDict = do ed <- loadDictL def dictFiles
@@ -208,7 +212,6 @@ smallDict = case buildDict def t of
                  , "an;" , "tomorrow;" , "bank;"
                  , "banked;" , "disband;" ]
 
-{-
 lkup :: Dict -> Text -> [DictEntry]
 lkup d t = let ts = textDeletes t
             in mapMaybe (flip Tr.lookup d . T.encodeUtf8) (t:ts)
@@ -219,3 +222,4 @@ lkup d t = let ts = textDeletes t
 test :: [Text]
 test = T.chunksOf 1 "abcde"
 
+-}

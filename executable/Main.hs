@@ -14,6 +14,6 @@ main = do args <- getArgs
 
 checkSpelling :: String -> IO ()
 checkSpelling word = do
-  dict <- largeDict1
+  dict <- largeDict
   let res = spellcheck (T.pack word) dict
   putStrLn (show res)
