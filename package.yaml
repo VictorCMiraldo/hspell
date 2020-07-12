@@ -10,6 +10,8 @@ dependencies:
   - bytestring
   - bytestring-trie
   - containers
+  - unordered-containers
+  - hashable
   - data-default
   - text
   - text-metrics

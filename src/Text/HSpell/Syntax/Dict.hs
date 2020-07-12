@@ -17,30 +17,14 @@ import qualified Data.Text.Metrics  as T (damerauLevenshtein)
 
 import           Data.Maybe (mapMaybe)
 import           Data.List (foldl')
-import qualified Data.Trie             as Tr
-import qualified Data.Trie.Convenience as Tr
-import qualified Data.Set  as S
+import           Data.Word (Word32)
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Set           as S
 
 import Control.Exception
 import Control.Concurrent
 
 import Text.HSpell.Util
-
--- |A dictionary entry consists in a flag about whether or not the key is a
--- correct spelled word and a list of possible suggestions.
-data DictEntry = DictEntry
-  { isCorrect  :: Bool       -- ^ Does this entry correspond to a correct word?
-  , misspellOf :: S.Set Text -- ^ This key could a mispel of any of the words
-                             -- in `misspellOf`.
-  -- TODO: add part-of-speech
-  } deriving Show
-
-instance Semigroup DictEntry where
-  de <> dd = DictEntry (isCorrect de || isCorrect dd)
-                       (misspellOf de `S.union` misspellOf dd)
-
-instance Monoid DictEntry where
-  mempty = DictEntry False S.empty
 
 -- |Dictionary configuration. 
 data DictConfig = DictConfig
@@ -55,26 +39,50 @@ instance Default DictConfig where
 -- TODO: Experiment with hashtables!
 -- TODO: Experiment with compact package
 data Dict = Dict
-  { dConf :: ! DictConfig          -- ^ Stores config parameters.
-  , dTrie :: ! (Tr.Trie DictEntry) -- ^ Stores the actual dictionary
-  }
+  { dConf    :: ! DictConfig                       -- ^ Stores config parameters.
+  , dCorrect :: ! (HM.HashMap Word32 (S.Set Text)) -- ^ Stores the actual dictionary
+  , dDeletes :: ! (HM.HashMap Word32 (S.Set Text)) -- ^ Stores deletions
+  } 
 
-dictOnTrie :: (Tr.Trie DictEntry -> Tr.Trie DictEntry) -> Dict -> Dict
-dictOnTrie f d = d { dTrie = f (dTrie d) }
+combineDicts :: DictConfig -> [Dict] -> Dict
+combineDicts dc []       = empty dc
+combineDicts dc ds@(_:_) =
+  let cors = map dCorrect ds
+      dels = map dDeletes ds
+   in Dict dc (go cors) (go dels)
+ where
+   go :: [HM.HashMap Word32 (S.Set Text)] -> HM.HashMap Word32 (S.Set Text)
+   go []     = HM.empty
+   go [x]    = x
+   go (x:xs) = HM.unionWith S.union x (go xs)
+
+
+dictOnCorrect :: (HM.HashMap Word32 (S.Set Text) -> HM.HashMap Word32 (S.Set Text))
+              -> Dict -> Dict
+dictOnCorrect f d = d { dCorrect = f (dCorrect d) }
+
+dictOnDeletes :: (HM.HashMap Word32 (S.Set Text) -> HM.HashMap Word32 (S.Set Text))
+              -> Dict -> Dict
+dictOnDeletes f d = d { dDeletes = f (dDeletes d) }
 
 -- |Empy dictionary
 empty :: DictConfig -> Dict
-empty dc = Dict dc Tr.empty
+empty dc = Dict dc HM.empty HM.empty
 
--- |Inserts an entry into the dictionary; uses the @(Semigroup.<>)@ operation
--- in case of conflicts.
-insert :: Text -> DictEntry -> Dict -> Dict
-insert t e = dictOnTrie (Tr.insertWith (<>) (T.encodeUtf8 t) e)
-    
+-- |Inserts an correct entry into the dictionary; 
+insertCorrect :: Text -> Dict -> Dict
+insertCorrect t = dictOnDeletes (HM.insertWith S.union (djb2 t) (S.singleton t))
+
+insertDeletes :: Text -> Text -> Dict -> Dict
+insertDeletes t dt = dictOnDeletes (HM.insertWith S.union (djb2 dt) (S.singleton t))
+
 -- |Looking up whether a word belongs in the dictionary /does not/
 -- return spelling suggestions, use 'spellcheck' for that purpose.
-lookup :: Text -> Dict -> Maybe DictEntry
-lookup t = Tr.lookup (T.encodeUtf8 t) . dTrie
+lookupCorrect :: Text -> Dict -> Bool
+lookupCorrect t = maybe False (S.member t) . HM.lookup (djb2 t) . dCorrect
+
+lookupSuggestions :: Text -> Dict -> Maybe (S.Set Text)
+lookupSuggestions t = HM.lookup (djb2 t) . dDeletes
 
 -- |Generates candidates for a given text.
 candidates :: Dict -> Text -> [Text]
@@ -89,24 +97,19 @@ candidates d = textDeletesN (dcMaxDistance $ dConf d)
 --
 -- The 'spellcheck'' function /does not/ refine the set of suggestions in 'DictEntry'.
 -- Use 'spellcheck' or 'refineFor' for that.
-spellcheck' :: Text -> Dict -> DictEntry
-spellcheck' t d =
-  let ts  = candidates d t
-   in mconcat $ mapMaybe (flip lookup d) (t:ts) 
+spellcheck' :: Text -> Dict -> Maybe (S.Set Text)
+spellcheck' t d 
+  | lookupCorrect t d = Nothing
+  | otherwise = let ts  = candidates d t
+                 in Just $ S.unions $ mapMaybe (flip lookupSuggestions d) (t:ts) 
 
 -- |Refines the suggestions in 'DictEntry' for a specific query.
-refineFor :: DictConfig -> Text -> DictEntry -> DictEntry
-refineFor dc t e = e { misspellOf = aux (misspellOf e) }
-  where
-    aux :: S.Set Text -> S.Set Text
-    aux = S.filter (\ u -> T.damerauLevenshtein t u <= dcMaxDistance dc)
+refineFor :: DictConfig -> Text -> S.Set Text -> S.Set Text
+refineFor dc t = S.filter (\ u -> T.damerauLevenshtein t u <= dcMaxDistance dc)
 
 -- |Spell-checks and refines the suggestions.
-spellcheck :: Text -> Dict -> DictEntry
-spellcheck t d = refineFor (dConf d) t $ spellcheck' t d
-
-size :: Dict -> Int
-size = Tr.size . dTrie
+spellcheck :: Text -> Dict -> Maybe (S.Set Text)
+spellcheck t d = refineFor (dConf d) t <$> spellcheck' t d
 
 ------------------------------
 -- * Loading a Dictionary * --
@@ -127,20 +130,14 @@ buildDict dc = foldl' (\pe t -> pe >>= go t) (return $ empty dc) . T.lines
     -- for now, returns just the word in a line separated by ';'.
     -- later, will return POS too
     parseLine :: Text -> Either ParseError Text
-    parseLine t = case T.breakOnAll ";" t of
+    parseLine t = case T.splitOn ";" t of
                     []    -> Left ("can't parse: " ++ show t)
-                    (x:_) -> Right (fst x)
+                    (x:_) -> Right x
     
     go :: Text -> Dict -> Either ParseError Dict
     go t d = do tl <- parseLine t
-                let es = genEntriesFor d tl
-                return $ foldl' (flip (uncurry insert)) d es
-
-genEntriesFor :: Dict -> Text -> [(Text , DictEntry)]
-genEntriesFor d t = let ts   = candidates d t 
-                        forT = S.singleton t
-                     in (t , DictEntry True S.empty)
-                      : map (\t' -> (t' , DictEntry False forT)) ts
+                let es = candidates d tl
+                return $ foldl' (\d' dt -> insertDeletes tl dt d') (insertCorrect tl d) es
 
 -------------------
 -------------------
@@ -174,18 +171,8 @@ loadDictL dc fs = do
   children <- newMVar []
   ds       <- either throw sequence
               <$> mapConcIO children (loadDict dc) fs
-  return (either (Left . id) (Right . combineDicts) ds) 
+  return (either (Left . id) (Right . combineDicts dc) ds) 
  where
-    combineDicts :: [Dict] -> Dict
-    combineDicts ds =
-      let trs = map dTrie ds
-       in case trs of
-            []      -> empty dc
-            (t:ts) -> Dict dc (foldl' (Tr.mergeBy mergeEntry) t ts)
-
-    mergeEntry :: DictEntry -> DictEntry -> Maybe DictEntry
-    mergeEntry x y = Just $! x <> y
-   
     mapConcIO :: Children t -> (a -> IO t) -> [a] -> IO (Either SomeException [t])
     mapConcIO children f as = do
       _ <- mapM (forkChild children . f) as
