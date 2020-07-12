@@ -44,11 +44,12 @@ instance Monoid DictEntry where
 
 -- |Dictionary configuration. 
 data DictConfig = DictConfig
-  { dcMaxDistance :: Int
+  { dcMaxDistance  :: Int
+  , dcPrefixLength :: Int
   } deriving (Eq , Show)
 
 instance Default DictConfig where
-  def = DictConfig 2
+  def = DictConfig 2 5
 
 -- |A Dictionary is a @bytestring-trie@ with `DictEntry`.
 --
@@ -79,6 +80,7 @@ lookup t = Tr.lookup (T.encodeUtf8 t) . dTrie
 -- |Generates candidates for a given text.
 candidates :: Dict -> Text -> [Text]
 candidates d = textDeletesN (dcMaxDistance $ dConf d)
+             . T.take (dcPrefixLength $ dConf d)
 
 -- |Spell-checks a given word. The idea is that we will be performing a
 -- number of lookups. For example, say we are spell-checking the word @yse@.
@@ -196,7 +198,7 @@ loadDictL dc fs = do
 -------------------
 
 largeDict1 :: IO Dict
-largeDict1 = do ed <- loadDict def "dict/en-single-file.wl"
+largeDict1 = do ed <- loadDict def "dict/en-80k.txt"
                 case ed of
                   Left err -> error err
                   Right d  -> return d
