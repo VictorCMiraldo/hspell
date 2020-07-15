@@ -4,6 +4,10 @@ import Control.Arrow ((***))
 import Control.Applicative
 import Control.Monad.Writer
 
+-- |A rule matching on tokens of type @t@ and registering
+-- variables of type @k@ is essentially a linear regular expression,
+-- that is, no Kleene Closures.
+--
 data Rule k t
   = Beginning
   | End
@@ -14,6 +18,15 @@ data Rule k t
 
 tk :: (Eq t) => t -> Rule k t
 tk t = Satisfy ((==) t)
+
+anytk :: Rule k t
+anytk = Satisfy (const True)
+
+ruleStartsAt0 :: Rule k t -> Bool
+ruleStartsAt0 Beginning    = True
+ruleStartsAt0 (Seq (r:rs)) = ruleStartsAt0 r
+ruleStartsAt0 (Choice rs)  = all ruleStartsAt0 rs
+ruleStartsAt0 _            = False
 
 -- |A 'match' is an offset on the original list and a list
 -- of matched identifiers, if any.
@@ -55,22 +68,29 @@ match' (Choice rs) (ts , ix) = matchOr  rs (ts , ix)
 match' _        _         = empty
 
 match :: (MonadPlus f, Eq t) => Rule k t -> [t] -> f (Match k t , ([t] , Int))
-match r ts = go 0 ts 
+match r ts 
+  | ruleStartsAt0 r = match' r (ts , 0)
+  | otherwise       = go 0 ts
   where
     go ix []       = empty
     go ix (t : ts) = match' r ((t : ts) , ix) <|> go (ix + 1) ts
 
-data VAR = B | C
-  deriving (Eq , Show)
+test :: Rule Char Char
+test = Choice [ Seq [ anytk , Choice [ tk 'b' , tk 'B' ] `As` 'b' , tk 'c' `As` 'c' , End ]
+              , Seq [ tk 'c' , anytk `As` 'c' ] ]
 
-test :: Rule VAR Char
-test = Choice [ Seq [ tk 'a' , Choice [ tk 'b' , tk 'B' ] `As` B , tk 'c' `As` C , End ]
-              , Seq [ tk 'c' , tk 'c' `As` C ] ]
+test2 :: Maybe (Match k String)
+test2 = let r = Seq $ map tk [ "in" , "order" , "to" ]
+         in fmap fst $ match r (words "we will do x in order to explain y")
 
-res :: String -> [Match VAR Char]
+
+
+
+
+res :: String -> [Match Char Char]
 res str = map fst (match test str)
 
-resm :: String -> Maybe (Match VAR Char)
+resm :: String -> Maybe (Match Char Char)
 resm str = fmap fst (match test str)
 
 
