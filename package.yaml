@@ -15,6 +15,7 @@ dependencies:
   - text
   - text-metrics
   - parsec
+  - mtl
 
 library:
   source-dirs: src/
