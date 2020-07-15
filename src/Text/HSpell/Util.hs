@@ -2,9 +2,10 @@
 module Text.HSpell.Util where
 
 import qualified Data.Text as T
+import           Data.Word (Word32)
+import           Data.Bits (xor)
 
 import           Data.List (sort)
-import qualified Data.Set as S
 
 -- |@deletes xs@ generates a list of lists that correspond to one deletion
 -- from @xs@.
@@ -37,3 +38,7 @@ deletesUpToN n xs = concatMap (flip deletesN xs) [1..n]
 -- |Generates all deletions for a given word
 textDeletesN :: Int -> T.Text -> [T.Text]
 textDeletesN i = map T.concat . deletesUpToN i . T.chunksOf 1 
+
+-- |Computes the djb2 hash over 'Text'
+djb2 :: T.Text -> Word32
+djb2 = T.foldl' (\h c -> 33*h `xor` fromIntegral (fromEnum c)) 5381

@@ -10,9 +10,11 @@ dependencies:
   - bytestring
   - bytestring-trie
   - containers
+  - hashable
   - data-default
   - text
   - text-metrics
+  - parsec
 
 library:
   source-dirs: src/
