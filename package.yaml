@@ -28,6 +28,7 @@ executables:
     main: Main.hs
     dependencies:
       - hspell
+      - optparse-applicative
 
 # tests:
 #   spec:
