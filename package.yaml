@@ -29,6 +29,7 @@ executables:
     dependencies:
       - hspell
       - optparse-applicative
+      - ncurses
 
 # tests:
 #   spec:

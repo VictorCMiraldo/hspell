@@ -1,9 +1,13 @@
 
-module Text.HSpell.Syntax.Parser where
+module Text.HSpell.Syntax.Parser (loadDictFromFile) where
+
+import Prelude hiding (readFile)
+import System.Exit
 
 import Data.Char
 import Data.List (foldl')
 import Data.Text (Text, pack)
+import Data.Text.IO (readFile)
 import Control.Monad
 
 import Text.Parsec.Prim hiding (token)
@@ -77,7 +81,7 @@ parseEntry = do
   return (w , DictEntry f)
 
 parseDict :: Parser [(Text , DictEntry)] 
-parseDict = parseEntry `sepBy` newline
+parseDict = parseEntry `sepEndBy` newline
 
 buildDict :: DictConfig -> [(Text , DictEntry)] -> Dict
 buildDict dc = foldl' go (empty dc)
@@ -87,6 +91,15 @@ buildDict dc = foldl' go (empty dc)
                     in foldl' (\d' dt -> insertDeletes t dt d')
                               (insertCorrect t de d) es
 
+--
+
+loadDictFromFile :: DictConfig -> FilePath -> IO Dict
+loadDictFromFile dc file = do
+  cont <- readFile file
+  let res = parse (parseDict <* eof) file cont
+  case res of
+    Left err      -> putStrLn (show err) >> exitFailure
+    Right entries -> return $ buildDict dc entries
 
 
 

@@ -11,6 +11,13 @@ packages:
       sha256: bdc13e00a60830edee41119af62b7203602377ccd81a6555c4fea95b0cb3a252
   original:
     hackage: bytestring-trie-0.2.5.0@sha256:9efa9c6f556314d28486be2470ff789419c5238ed2e354870623a3cbbd28fbe2,3349
+- completed:
+    hackage: ncurses-0.2.16@sha256:8ad9fe6562a80d28166d76adbac1eb4d40c6511fe4e9272ed6e1166dc2f1cdf1,3575
+    pantry-tree:
+      size: 674
+      sha256: 093bdc85ed518c81724f5b6b81c24ab4ebdd231551861f4feaa43361136f70b7
+  original:
+    hackage: ncurses-0.2.16@sha256:8ad9fe6562a80d28166d76adbac1eb4d40c6511fe4e9272ed6e1166dc2f1cdf1,3575
 snapshots:
 - completed:
     size: 531237
