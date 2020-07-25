@@ -12,6 +12,8 @@ import           Data.Text (Text)
 import           Data.Default
 import qualified Data.Text          as T
 import qualified Data.Text.Encoding as T
+-- TODO: Find a working damerauLevenshtein; damerauLevenshtein is giving
+-- that the distance between 'as' and 'es' is 2, where in reality is 4!!
 import qualified Data.Text.Metrics  as T (damerauLevenshtein)
 
 import           Data.Maybe (mapMaybe)
@@ -38,6 +40,7 @@ instance Default DictConfig where
 -- |A Dictionary is a @bytestring-trie@ with `DictEntry`.
 --
 -- TODO: Experiment with compact package
+-- TODO: Experiment with different output verbosity: /All/,/Top/,/Some/
 data Dict = Dict
   { dConf    :: ! DictConfig             -- ^ Stores config parameters.
   , dCorrect :: ! (Tr.Trie DictEntry)    -- ^ Stores the actual dictionary
@@ -109,9 +112,10 @@ spellcheck' t d
 refineFor :: DictConfig -> Text -> S.Set Text -> S.Set Text
 refineFor dc t = S.filter (\ u -> T.damerauLevenshtein t u <= dcMaxDistance dc)
 
--- |Spell-checks and refines the suggestions.
-spellcheck :: Text -> Dict -> Maybe (S.Set Text)
-spellcheck t d = refineFor (dConf d) t <$> spellcheck' t d
+-- |Spell-checks and refines the suggestions. A result of 'Nothing'
+-- indicates that the given word is /correct/.
+spellcheckWord :: Text -> Dict -> Maybe (S.Set Text)
+spellcheckWord t d = refineFor (dConf d) t <$> spellcheck' t d
 
 {-
 ------------------------------

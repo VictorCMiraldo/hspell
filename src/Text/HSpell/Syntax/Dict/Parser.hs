@@ -1,5 +1,5 @@
 
-module Text.HSpell.Syntax.Parser (loadDictFromFile) where
+module Text.HSpell.Syntax.Dict.Parser (loadDictFromFile) where
 
 import Prelude hiding (readFile)
 import System.Exit
