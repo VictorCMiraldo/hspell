@@ -6,6 +6,7 @@ github:      VictorCMiraldo/hspell
 category:    Other
 
 dependencies:
+  - array
   - base >= 4.9 && < 5
   - bytestring
   - bytestring-trie

@@ -8,12 +8,13 @@ module Text.HSpell.Syntax.Dict where
 
 import Prelude hiding (lookup)
 
+import           Control.Arrow ((&&&))
+
 import           Data.Text (Text)
 import           Data.Default
+import           Data.Maybe (fromJust)
 import qualified Data.Text          as T
 import qualified Data.Text.Encoding as T
--- TODO: Find a working damerauLevenshtein; damerauLevenshtein is giving
--- that the distance between 'as' and 'es' is 2, where in reality is 4!!
 import qualified Data.Text.Metrics  as T (damerauLevenshtein)
 
 import           Data.Maybe (mapMaybe)
@@ -82,9 +83,10 @@ insertDeletes t dt = dictOnDeletes (Tr.insertWith S.union (T.encodeUtf8 dt) (S.s
 
 -- |Looking up whether a word belongs in the dictionary /does not/
 -- return spelling suggestions, use 'spellcheck' for that purpose.
-lookupCorrect :: Text -> Dict -> Bool
-lookupCorrect t = maybe False (const True) . Tr.lookup (T.encodeUtf8 t) . dCorrect
+lookupCorrect :: Text -> Dict -> Maybe DictEntry
+lookupCorrect t = Tr.lookup (T.encodeUtf8 t) . dCorrect
 
+-- |Looks up whether we have suggestions for a given word.
 lookupSuggestions :: Text -> Dict -> Maybe (S.Set Text)
 lookupSuggestions t = Tr.lookup (T.encodeUtf8 t) . dDeletes
 
@@ -103,19 +105,23 @@ candidates d = textDeletesN (dcMaxDistance $ dConf d)
 -- The 'spellcheck'' function /does not/ refine the set of suggestions in 'DictEntry'.
 -- Use 'spellcheck' or 'refineFor' for that.
 spellcheck' :: Text -> Dict -> Maybe (S.Set Text)
-spellcheck' t d 
-  | lookupCorrect t d = Nothing
-  | otherwise = let ts  = candidates d t
-                 in Just $ S.unions $ mapMaybe (flip lookupSuggestions d) (t:ts) 
+spellcheck' t d =
+  case lookupCorrect t d of
+   Just _  -> Nothing
+   Nothing -> let ts  = candidates d t
+               in Just $ S.unions $ mapMaybe (flip lookupSuggestions d) (t:ts) 
 
--- |Refines the suggestions in 'DictEntry' for a specific query.
-refineFor :: DictConfig -> Text -> S.Set Text -> S.Set Text
-refineFor dc t = S.filter (\ u -> T.damerauLevenshtein t u <= dcMaxDistance dc)
+-- |Refines the suggestions in 'DictEntry' for a specific query, namelly,
+-- returns only the suggestions within 'dcMaxDistance' from the queried word
+-- and adds frequency information.
+refineFor :: Dict -> Text -> S.Set Text -> S.Set (Text , Int)
+refineFor d t = S.map (id &&& deFreq . fromJust . flip lookupCorrect d)
+              . S.filter (\ u -> T.damerauLevenshtein t u <= dcMaxDistance (dConf d))
 
 -- |Spell-checks and refines the suggestions. A result of 'Nothing'
 -- indicates that the given word is /correct/.
-spellcheckWord :: Text -> Dict -> Maybe (S.Set Text)
-spellcheckWord t d = refineFor (dConf d) t <$> spellcheck' t d
+spellcheckWord :: Text -> Dict -> Maybe (S.Set (Text, Int))
+spellcheckWord t d = refineFor d t <$> spellcheck' t d
 
 {-
 ------------------------------

@@ -1,22 +1,42 @@
-{-# LANGUAGE FlexibleContexts #-}
-module Text.HSpell.Grammar.Regexp where
+-- |Provides a polymorphic recursive linear regexp DSL to match
+-- gramatical rules. Examples include, for instance, matching
+-- on duplicate words:
+--
+-- > r :: Rule
+-- > r = Seq [ anytk `As` 0 , var 0 ]
+--
+-- The @r@ above matches any token, stores it 'As' @0@, then matches
+-- whatever is stored in variable @0@.
+module Text.HSpell.Grammar.Matcher
+  ( Rule(..)
+  , tk , anytk , var
+  , match , Match
+  ) where
 
 import Control.Applicative
 import Control.Monad.State
 import Control.Monad.Reader
 
 -- |A rule matching on tokens of type @t@ and registering
--- variables of type @k@ is essentially a linear regular expression,
--- that is, no Kleene Closures.
---
+-- variables of type @k@. It is essentially a linear
+-- regular expression (no Kleene Closures).
 data Rule k t
-  = Beginning
+  -- |Matches the beginning of the input
+  = Beginning 
+  -- |Matches the end of the input
   | End
-  -- TODO: enable excaptions on this guy?
-  | Satisfy (t -> Reader [(k , t)] Bool)
+  -- |In case the rule matches successfully, stores the first token
+  -- that witnesses the match with a given name.
   | As (Rule k t) k
+  -- |Matches a token that satisfies a given condition; note that we
+  -- have access to the list of matched variables so far. See 'tk', 'anytk'
+  -- or 'var' for examples on how to use this.
+  | Satisfy (t -> Reader [(k , t)] Bool) -- TODO: enable exceptions on this guy?
+  -- |Matches a sequence of rules
   | Seq      [Rule k t]
+  -- |Matches one of the given rules
   | Choice   [Rule k t]
+  -- |Optionally matches on a rule
   | Optional (Rule k t)
 
 -- |Matches a single token
@@ -56,7 +76,6 @@ matchOr :: (MonadPlus f , Eq t) => [Rule k t] -> ([t] , Int) -> StateT [(k , t)]
 matchOr []        _         = empty -- unit of sum is 0
 matchOr (r : rs)  (ts , ix) = matchSt r (ts , ix) <|> matchOr rs (ts , ix)
 
--- |Matches a rule on the given input and offset
 matchSt :: (MonadPlus f, Eq t) => Rule k t -> ([t] , Int)
         -> StateT [(k , t)] f (Int , ([t] , Int))
 matchSt Beginning   (ts , ix)
@@ -69,6 +88,8 @@ matchSt (Satisfy f) ((t : ts) , ix) = do
   if runReader (f t) st
   then return (ix , (ts , ix + 1))
   else empty
+-- TODO: this is nasty... what if the rule matches a large portion?
+-- why are we only storing the first matched token
 matchSt (As r k)    (ts@(t:_) , ix) = do
   res <- matchSt r (ts , ix)
   modify ((k , t):)
@@ -89,6 +110,7 @@ match r ts0
     go _  []       = empty
     go ix (t : ts) = match' r ((t : ts) , ix) <|> go (ix + 1) ts
 
+{-
 --
 
 test :: Rule Int Char
@@ -121,3 +143,5 @@ resm str = match test str
 
 -- match :: RuleSet t -> [t] -> [Matches t]
 -- match = undefined
+
+-}

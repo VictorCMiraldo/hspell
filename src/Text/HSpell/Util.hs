@@ -2,8 +2,6 @@
 module Text.HSpell.Util where
 
 import qualified Data.Text as T
-import           Data.Word (Word32)
-import           Data.Bits (xor)
 import           Data.List (sort)
 
 -- |@deletes xs@ generates a list of lists that correspond to one deletion from @xs@.

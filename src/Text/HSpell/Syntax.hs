@@ -1,4 +1,4 @@
--- |Provides the interface to spellcheck words in individual
+-- |Provides the Interface to spellcheck words in individual
 -- sentences. It outputs a list of suggestions for words located
 -- within an offset from the beginning of the sentence.
 module Text.HSpell.Syntax where
@@ -14,14 +14,15 @@ import Text.HSpell.Syntax.Dict.Parser
 
 data SyntaxSuggestion = SyntaxSuggestion
   { ssOffset       :: Int
-  , ssAlternatives :: S.Set T.Text
+  , ssAlternatives :: S.Set (T.Text , Int)
   }
 
-spellcheck :: Sentence -> HSpellM [SyntaxSuggestion]
-spellcheck sent = asks envDict >>= return . go 0 sent
+spellcheckSentence :: Sentence -> HSpellM [SyntaxSuggestion]
+spellcheckSentence sent = asks envDict >>= return . go 0 sent
   where
     go _  []     _ = []
     go ix (w:ws) d =
       let rest = go (ix + 1) ws d
        in maybe rest (\s -> SyntaxSuggestion ix s : rest)
         $ spellcheckWord (lToken w) d
+

@@ -1,42 +1,28 @@
-
 module Text.HSpell.Syntax.Dict.Parser (loadDictFromFile) where
 
 import Prelude hiding (readFile)
 import System.Exit
 
-import Data.Char
 import Data.List (foldl')
-import Data.Text (Text, pack)
+import Data.Text (Text)
 import Data.Text.IO (readFile)
-import Control.Monad
 
 import Text.Parsec.Prim hiding (token)
 import Text.Parsec.Combinator
 import Text.Parsec.Char
 --------------------
+import Text.HSpell.Base.Parser
 import Text.HSpell.Syntax.Dict
 
-type Parser = Parsec Text ()
 
-lexeme :: Parser a -> Parser a
-lexeme p = p <* skipMany space
-
-word :: Parser Text
-word = lexeme (pack <$> many1 letter)
-
-token :: String -> Parser ()
-token s = try $ do
-  ss <- lexeme (many1 (satisfy (not . isSpace)))
-  when (s /= ss) (fail "" <?> s)
-  
 {-
 -- TODO: Add part-of-speech mechanisms; this is all just a huge
 -- sketch
 
-parseOf :: Parser Text
+parseOf :: HSpellParser Text
 parseOf = token "of" >> word
 
-parsePOS' :: Parser PartOfSpeech
+parsePOS' :: HSpellParser PartOfSpeech
 parsePOS' = choice
   [ token "npl"  *> (NoumPlural <$> optionMaybe parseOf)
   , token "n"    *> return Noum
@@ -49,14 +35,14 @@ parsePOS' = choice
   , parseVerb
   ]
 
-parseVerb :: Parser PartOfSpeech
+parseVerb :: HSpellParser PartOfSpeech
 parseVerb = do
   vf  <- parseVerbForm `sepBy` (token "&")
   of_ <- optionMaybe parseOf
   return (Verb vf of_)
 
 
-parseVerbForm :: Parser VerbForm
+parseVerbForm :: HSpellParser VerbForm
 parseVerbForm = choice
   [ token "pp"  *> return PastParticiple
   , token "imp" *> return PastSimple
@@ -72,15 +58,15 @@ parsePOS = either (Left . show) Right . sequence
 -}
 
 -- |Parses a line such as @was;2751347404;imp of be;v@
-parseEntry :: Parser (Text , DictEntry)
+parseEntry :: HSpellParser (Text , DictEntry)
 parseEntry = do
-  w   <- word                 <* lexeme (char ';')
+  w   <- word' <* lexeme (char ';')
   f   <- read <$> many1 digit -- <* lexeme (char ';')
   -- pos <- parsePOS' `sepBy` (lexeme (char ';'))
   skipMany (noneOf "\n")
   return (w , DictEntry f)
 
-parseDict :: Parser [(Text , DictEntry)] 
+parseDict :: HSpellParser [(Text , DictEntry)] 
 parseDict = parseEntry `sepEndBy` newline
 
 buildDict :: DictConfig -> [(Text , DictEntry)] -> Dict
