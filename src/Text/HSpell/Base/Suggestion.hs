@@ -10,7 +10,7 @@ import qualified Data.Set   as S
 -------------------------------
 import Text.HSpell.Base.Types
 
--- |Providesan abstract functionality for resolving sugestions,
+-- |Provides an abstract functionality for resolving sugestions,
 -- the idea being that given a sentence @txt = "a b c"@; and a suggestion
 -- that says, for instance, @s = SyntaxSug 1 ["B", "bb"]@, we will output
 -- 'Nothing' when we want to ignore the suggestion; or a substitution.
@@ -29,7 +29,7 @@ class MonadSuggest m where
 data Suggest = Suggest
   { sugSection      :: Section
   , sugAlternatives :: S.Set Text
-  }
+  } deriving Show
 
 -- |As the user makes decisions about which suggestions to
 -- adopt, we record them in as 'Substitution's to be performed.

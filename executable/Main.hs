@@ -1,72 +1,52 @@
 module Main where
 
-import           System.Environment
-import           Options.Applicative
+import           System.Exit
 
-import qualified Data.Text as T
+import           Control.Monad.Reader
 
+import qualified Data.Text.IO as T
+
+import           Text.HSpell.Tokenizer.Plain
+import           Text.HSpell.Syntax
 import           Text.HSpell.Syntax.Dict
-import           Text.HSpell.Syntax.Parser
+import           Text.HSpell.Syntax.Dict.Parser
 
-data Options = Options
-  { optsDicts     :: FilePath
-  , optsPrefixLen :: Int
-  , optsEditDist  :: Int
-  , optsWord      :: String
-  } deriving (Eq , Show)
-
-optsParser :: Parser Options
-optsParser = Options
-  <$> optsDictsParser
-  <*> optsPrefixLenParser
-  <*> optsEditDistParser
-  <*> argument str (metavar "Word")
-
--- TODO: Parse a list of dictionaries? What will the user interface
--- look like?
-optsDictsParser :: Parser FilePath
-optsDictsParser = option str $
-     long "dicts"
-  <> short 'd'
-  <> metavar "FILE,FILE,..."
-  <> help "List of dictionaries to load"
-
-optsPrefixLenParser :: Parser Int
-optsPrefixLenParser = option auto $
-     long "prefix-len"
-  <> short 'p'
-  <> showDefault
-  <> value 4
-  <> metavar "INT"
-  <> help "Length of prefix to precompute deletions for."
-
-optsEditDistParser :: Parser Int
-optsEditDistParser = option auto $
-     long "edit-dist"
-  <> short 'e'
-  <> showDefault
-  <> value 2
-  <> metavar "INT"
-  <> help "Maximum Damerau-Leveshtein distance to suggest spelling corrections."
-
-optsParserInfo :: ParserInfo Options
-optsParserInfo = info optsParser $
-  fullDesc <> progDesc "Spells checks things"
-           <> header "hpsell"
+import Config
+import Options
 
 main :: IO ()
 main = do
-  options <- customExecParser p optsParserInfo
-  checkspelling options
- where
-   p = prefs showHelpOnEmpty
+  opts         <- processCLIOptions
+  let confFile = maybe "defaultHSpellConfig" id $ optsConfig opts
+  mconf        <- loadConfigFromFile confFile
+  case mconf of
+    Nothing   -> putStrLn ("Couldn't load " ++ show confFile) >> exitWith (ExitFailure 1)
+    Just conf -> mainWithConf opts conf
 
+-- TODO: Combine opts and conf into an execution enviroment
+
+mainWithConf :: HSpellOptions -> HSpellConfig -> IO ()
+mainWithConf opts conf = do
+  dict <- loadSyntaxDictionary conf
+  inp  <- T.readFile (optsWorkOnFile opts)
+  let tks  = tokenize inp
+  let sugs = flip runReader dict
+           $ mapM (spellcheckSentence (dictVerbosity conf)) tks
+  mapM_ (putStrLn . show) (concat sugs)
+  
+loadSyntaxDictionary :: HSpellConfig -> IO Dict
+loadSyntaxDictionary conf = do
+  let dconf = DictConfig (dictMaxDist conf) (dictPrefixLength conf)
+  combineDicts dconf <$> mapM (loadDictFromFile dconf) (dictionaries conf)
+
+{-
 checkspelling :: Options -> IO ()
 checkspelling opts = do
   let dc = DictConfig (optsEditDist opts) (optsPrefixLen opts)
   dict <- loadDictFromFile dc (optsDicts opts)
   let res = spellcheck (T.pack $ optsWord opts) dict
   putStrLn (show res)
+-}
 
 {-
 checkSpelling :: String -> IO ()

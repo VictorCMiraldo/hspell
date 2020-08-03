@@ -11,12 +11,12 @@ dependencies:
   - bytestring
   - bytestring-trie
   - containers
-  - hashable
   - data-default
   - text
   - text-metrics
   - parsec
   - mtl
+  - aeson
 
 library:
   source-dirs: src/

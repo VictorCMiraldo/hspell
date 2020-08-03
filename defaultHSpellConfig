@@ -1,0 +1,6 @@
+{
+  "dictionaries": ["dict/en-with-freq.wl"],
+  "dictMaxDist": 2,
+  "dictPrefixLength": 4,
+  "dictVerbosity": "Closest"
+}

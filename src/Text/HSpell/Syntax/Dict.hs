@@ -29,7 +29,6 @@ import Text.HSpell.Util
 
 data DictEntry = DictEntry
   { deFreq :: Int
-  -- , dePOS  :: [PartOfSpeech] -- TODO: decide whether to use some NLP toolkit or built it ad-hoc
   } deriving (Eq , Show)
 
 -- |Dictionary configuration.
@@ -58,6 +57,7 @@ data Dict = Dict
 -- TODO: should it really call error? I don't think so.
 combineDicts :: DictConfig -> [Dict] -> Dict
 combineDicts dc []       = empty dc
+combineDicts dc [d]      = d
 combineDicts dc ds@(_:_) =
   let cors = map dCorrect ds
       dels = map dDeletes ds
@@ -132,6 +132,7 @@ data SymSpellVerbosity
   = All      -- ^ Returns all possible candidates
   | Closest  -- ^ Returns all candidates with smallest distance from the input
   | Top      -- ^ Returns the closest and most frequent candidate.
+  deriving (Eq , Show)
 
 -- |Spell-checks a given word returning /all/ possible suggestions
 -- in case it detects a misspell. A result of 'Nothing' indicates that
