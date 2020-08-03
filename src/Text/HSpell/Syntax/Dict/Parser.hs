@@ -60,8 +60,8 @@ parsePOS = either (Left . show) Right . sequence
 -- |Parses a line such as @was;2751347404;imp of be;v@
 parseEntry :: HSpellParser (Text , DictEntry)
 parseEntry = do
-  w   <- word' <* lexeme (char ';')
-  f   <- read <$> many1 digit -- <* lexeme (char ';')
+  (w , _) <- word <* lexeme (char ';')
+  f       <- read <$> many1 digit -- <* lexeme (char ';')
   -- pos <- parsePOS' `sepBy` (lexeme (char ';'))
   skipMany (noneOf "\n")
   return (w , DictEntry f)

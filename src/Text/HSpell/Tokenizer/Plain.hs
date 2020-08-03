@@ -7,6 +7,15 @@ import Text.Parsec
 import Text.HSpell.Base.Types
 import Text.HSpell.Base.Parser
 
+-- TODO: How to handle words with a hyphen? How about abreviations?
+--
+-- Tricky example of a single sentence:
+--
+-- "Hello Mr. Smith, you must've spent 4.2 dollars on this type-checker!"
+--
+-- This suggests we need to use something to handle contractions and
+-- abbreviations neatly; I will leave this for the future, once
+-- we get the general tool going.
 sentences :: HSpellParser [Sentence]
 sentences = many oneSentence <* eof
   where

@@ -3,7 +3,7 @@ module Text.HSpell.Base.Parser where
 import Prelude hiding (readFile)
 
 import Data.Char
-import Data.Text (Text, pack)
+import Data.Text (pack)
 import Control.Monad
 
 import Text.Parsec.Prim hiding (token)

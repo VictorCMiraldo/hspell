@@ -1,7 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 -- |Defines the syntactical dictionary responsible for
--- performing spelling checks and suggestions.
+-- performing spelling checks and suggestions. We use the @SymSpell@
+-- algorithm under the hood to perform suggestions.
 --
 -- TODO: Add Part-Of-Speech tags here too!
 module Text.HSpell.Syntax.Dict where
@@ -10,6 +11,8 @@ import Prelude hiding (lookup)
 
 import           Control.Arrow ((&&&))
 
+import           Data.Function (on)
+import           Data.List (sortBy, groupBy)
 import           Data.Text (Text)
 import           Data.Default
 import           Data.Maybe (fromJust)
@@ -26,13 +29,15 @@ import Text.HSpell.Util
 
 data DictEntry = DictEntry
   { deFreq :: Int
-  -- , dePOS  :: [PartOfSpeech]
+  -- , dePOS  :: [PartOfSpeech] -- TODO: decide whether to use some NLP toolkit or built it ad-hoc
   } deriving (Eq , Show)
 
--- |Dictionary configuration. 
+-- |Dictionary configuration.
 data DictConfig = DictConfig
-  { dcMaxDistance  :: Int
-  , dcPrefixLength :: Int
+  { dcMaxDistance  :: Int -- ^ Indicates what is the maximum Damerau-Leveshtein distance to be considered
+                          -- when looking for suggestions. 
+  , dcPrefixLength :: Int -- ^ Looks only at the first 'dcPrefixLength' letters of the input
+                          -- when precomputing and spellchecking.
   } deriving (Eq , Show)
 
 instance Default DictConfig where
@@ -48,6 +53,9 @@ data Dict = Dict
   , dDeletes :: ! (Tr.Trie (S.Set Text)) -- ^ Stores deletions
   } 
 
+-- |Combines two dictionaries into one; calls @error@ on overlapping correct entries.
+--
+-- TODO: should it really call error? I don't think so.
 combineDicts :: DictConfig -> [Dict] -> Dict
 combineDicts dc []       = empty dc
 combineDicts dc ds@(_:_) =
@@ -114,14 +122,36 @@ spellcheck' t d =
 -- |Refines the suggestions in 'DictEntry' for a specific query, namelly,
 -- returns only the suggestions within 'dcMaxDistance' from the queried word
 -- and adds frequency information.
-refineFor :: Dict -> Text -> S.Set Text -> S.Set (Text , Int)
-refineFor d t = S.map (id &&& deFreq . fromJust . flip lookupCorrect d)
-              . S.filter (\ u -> T.damerauLevenshtein t u <= dcMaxDistance (dConf d))
+refineFor :: Dict -> Text -> S.Set Text -> S.Set (Text , (Int , Int))
+refineFor d t = S.filter (\(_ , (dist , _)) -> dist <= dcMaxDistance (dConf d))
+              . S.map (id &&& T.damerauLevenshtein t
+                          &&& deFreq . fromJust . flip lookupCorrect d) 
 
--- |Spell-checks and refines the suggestions. A result of 'Nothing'
--- indicates that the given word is /correct/.
-spellcheckWord :: Text -> Dict -> Maybe (S.Set (Text, Int))
-spellcheckWord t d = refineFor d t <$> spellcheck' t d
+-- |How to provide output.
+data SymSpellVerbosity
+  = All      -- ^ Returns all possible candidates
+  | Closest  -- ^ Returns all candidates with smallest distance from the input
+  | Top      -- ^ Returns the closest and most frequent candidate.
+
+-- |Spell-checks a given word returning /all/ possible suggestions
+-- in case it detects a misspell. A result of 'Nothing' indicates that
+-- the given word is /correct/. 
+spellcheckWordAll :: Text -> Dict -> Maybe (S.Set (Text, (Int , Int)))
+spellcheckWordAll t d = refineFor d t <$> spellcheck' t d
+
+-- |Spell checks a word with a given 'SymSpellVerbosity' verbosity option.
+spellcheckWord :: SymSpellVerbosity -> Text -> Dict -> Maybe (S.Set Text)
+spellcheckWord All  t d = fmap (S.map fst) $ spellcheckWordAll t d
+spellcheckWord verb t d = do
+  sugs <- S.toList <$> spellcheckWordAll t d
+  let ssug = groupBy ((==) `on` (fst . snd)) $ sortBy (compare `on` snd) sugs
+  return $ case ssug of
+    []    -> S.empty
+    (c:_) -> S.fromList $ case verb of
+               Top     -> [fst (head c)]
+               Closest -> map fst c
+               _       -> error "unreachable"
+  
 
 {-
 ------------------------------

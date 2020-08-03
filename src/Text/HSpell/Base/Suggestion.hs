@@ -1,13 +1,35 @@
--- |As the user makes decisions about accepting or rejecting
--- some suggestions, we gather substitutions to be performed.
+-- |When chekcing a file, the program will present the user with
+-- suggestions, which might be taken into account or not. 
 --
--- Here we define the 'Subst' type and the necessary machinery to apply
--- them to a file.
-module Text.HSpell.Base.FileSubst where
+-- Here we define the mechanisms for dealing with suggestions
+-- and later applying them to files.
+module Text.HSpell.Base.Suggestion where
 
 import qualified Data.Text  as T
+import qualified Data.Set   as S
 -------------------------------
 import Text.HSpell.Base.Types
+
+-- |Providesan abstract functionality for resolving sugestions,
+-- the idea being that given a sentence @txt = "a b c"@; and a suggestion
+-- that says, for instance, @s = SyntaxSug 1 ["B", "bb"]@, we will output
+-- 'Nothing' when we want to ignore the suggestion; or a substitution.
+-- Say we chose for "bb", the output of @resolveSynSug s@ should
+-- be @Just (Subst (Loc x 2, Loc x 3) "bb")@, where @x@ here is whathever
+-- line we are at. 
+class MonadSuggest m where
+  resolveSuggestion :: Suggest -> m (Maybe Subst)
+
+  -- TODO: lots of things!
+  -- ignoreSuggestion :: either Always Session Once -> Suggest -> m ()
+  -- ...
+
+-- |A 'Suggest' presents the user with a number of options
+-- for changing a 'Section' of the file.
+data Suggest = Suggest
+  { sugSection      :: Section
+  , sugAlternatives :: S.Set Text
+  }
 
 -- |As the user makes decisions about which suggestions to
 -- adopt, we record them in as 'Substitution's to be performed.
@@ -77,8 +99,6 @@ applyLineOps = go 0
       | c < l     = t : go (c+1) ((l , mop):ops) ts
       | otherwise = error "Invariant broke: line operations not sorted by line"
      
-
-
 -- |Sometimes we might need to delete entire lines, hence we'll be mostly
 -- working with 'DelOrLineOp' where @Nothing@ represents /delete this line/.
 type DelOrLineOp = Maybe LineOp
