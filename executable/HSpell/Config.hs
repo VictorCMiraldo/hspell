@@ -2,7 +2,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# OPTIONS_GHC -Wno-orphans    #-}
-module Config where
+module HSpell.Config where
 
 import           GHC.Generics
 import           System.IO

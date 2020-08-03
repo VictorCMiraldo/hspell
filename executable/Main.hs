@@ -11,8 +11,8 @@ import           Text.HSpell.Syntax
 import           Text.HSpell.Syntax.Dict
 import           Text.HSpell.Syntax.Dict.Parser
 
-import Config
-import Options
+import HSpell.Config
+import HSpell.Options
 
 main :: IO ()
 main = do

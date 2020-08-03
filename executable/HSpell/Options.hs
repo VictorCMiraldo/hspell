@@ -1,4 +1,4 @@
-module Options where
+module HSpell.Options where
 
 import qualified Text.HSpell.Syntax.Dict as HS
 import Options.Applicative
