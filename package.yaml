@@ -30,7 +30,11 @@ executables:
     dependencies:
       - hspell
       - optparse-applicative
-      - ncurses
+      - brick
+      - vty
+      - microlens
+      - microlens-th
+    ghc-options: -threaded
 
 # tests:
 #   spec:

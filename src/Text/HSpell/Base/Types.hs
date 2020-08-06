@@ -5,11 +5,16 @@ module Text.HSpell.Base.Types
     -- * Tokens and Type Signatures for dealing with them
   , Token(..) , Tokenizer
   , Sentence
+    -- * Input Files
+  , HSpellInFile , getFileSection
     -- * Re-exports for convenience
-  , Text
+  , T.Text
   ) where
 
-import Data.Text (Text)
+import Control.Arrow ((***))
+
+import qualified Data.Text  as T
+import qualified Data.Array as A
 
 -- |Specifies a location in a file
 data Loc = Loc
@@ -54,12 +59,12 @@ sectDisj (s0, e0) (s1 , e1) = e0 < s1 || e1 < s0
 -- suggestions on streams of 'Token's, where a token is a bunch
 -- of 'Text'
 data Token = Token
-  { tText :: !Text
+  { tText :: !T.Text
   , tSect :: !Section
   } deriving (Eq , Show)
 
 -- |A 'Tokenizer' splits the input into a list of 'Sentences'
-type Tokenizer = Text -> [Sentence]
+type Tokenizer = T.Text -> [Sentence]
 
 -- |A 'Sentence' is a series of tokens with locations. We can't simply
 -- ignore their locations because some file formats contain
@@ -76,6 +81,84 @@ type Tokenizer = Text -> [Sentence]
 -- > ,Loc 35 15 "lines" , Loc 35 21 "."]
 --
 type Sentence = [Token]
+
+-- |The input file will be stored as an array from line numbers
+-- to lines. This ensures we can easily fetch portions of suggestions
+-- and we can display the contents of the file /as they are/ to the user.
+type HSpellInFile = A.Array Int T.Text
+
+-- |Applies 'T.drop' to the first line and 'T.take' to the last.
+--
+-- > cutFirstLast 3 6 ["abcdefg"]           = ("abc", ["def"] , "g")
+-- > cutFirstLast 3 6 ["abcdefg","abcdefg"] = ("abc", ["def","abcdef"], "g")
+--
+cutFirstLast :: Int -> Int -> [T.Text] -> (T.Text , [T.Text] , T.Text)
+cutFirstLast _     _   []  = (T.empty , [] , T.empty)
+cutFirstLast start end [t] =
+  let (bef , r)   = T.splitAt start t
+      (res , aft) = T.splitAt (end - start) r
+   in (bef , [res] , aft)
+cutFirstLast start end (t:ts) =
+  case snoc ts of
+    Nothing         -> error "unreachable; ts is not empty"
+    Just (ts' , t') ->
+      let (bef , r)  = T.splitAt start t
+          (r' , aft) = T.splitAt end t'
+       in (bef , r:ts' ++ [r'] , aft)
+ where
+   snoc :: [a] -> Maybe ([a] , a)
+   snoc []     = Nothing
+   snoc [a]    = Just ([] , a)
+   snoc (x:xs) = fmap ((x:) *** id) $ snoc xs
+
+-- |Given some context lines to be displayed and a section, returns
+-- @ctx@ lines before the section, the extracted section and @ctx@ lines
+-- after the section. Take a file, with its line numbers annotated:
+--
+-- > 42: xxxxxxxxxx
+-- > 43: aaaaaaaaaa
+-- > 44: xxxOOOOyyy
+-- > 45: bbbbbbbbbb
+-- > 46: xxxxxxxxxx
+--
+-- Let the file above be @f@, calling @getFileSectionWithCtx 1 (Loc 44 3, Loc 44 8) f@
+-- would return:
+--
+-- > getFileSectionWithCtx 1 (Loc 44 3, Loc 44 8) f
+-- >  = (["aaaaaaaaaa"], ("xxx" , ["OOOO"], "yyy") , ["bbbbbbbbbb"])
+--
+getFileSectionWithCtx :: Int -- ^ @ctx@
+                      -> Section
+                      -> HSpellInFile
+                      -> ([T.Text] , (T.Text , [T.Text] , T.Text) , [T.Text])
+getFileSectionWithCtx ctx (start , end) f =
+ let befLs = map ((A.!) f) ctxBef
+     aftLs = map ((A.!) f) ctxAft
+  in (befLs , cutFirstLast (lCol start) (lCol end) (map ((A.!) f) deltaL) , aftLs)
+ where
+   ctxBef = [ l | l <- [lLine start - ctx .. lLine start - 1] , l >= 0 ]
+   ctxAft = [ l | l <- [lLine end + 1 .. lLine end + ctx]     , l <= snd (A.bounds f) ]
+   
+   deltaL = [lLine start .. lLine end]
+
+-- |Returns the text enclosed within a given section of a file.
+getFileSection :: Section -> HSpellInFile -> [T.Text]
+getFileSection s f =
+  let (_ , (_ , res , _) , _) = getFileSectionWithCtx 0 s f
+   in res
+
+{-
+test :: HSpellInFile
+test = A.array (0,4) . zip [0..]
+     $ map T.pack
+     $ [ "some testing text"
+       , "that is supposed to span"
+       , "multiple lines, just like a file"
+       , "in this case, we have five lines"
+       , "this is \\texttt{te} last one."
+       ]
+
+-}
 
 {- 
 -- |The 'HSpellEnv' carries the necessary dictionaries

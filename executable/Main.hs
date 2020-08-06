@@ -13,7 +13,12 @@ import           Text.HSpell.Syntax.Dict.Parser
 
 import HSpell.Config
 import HSpell.Options
+import HSpell.Interface
 
+main :: IO ()
+main = tester
+
+{-
 main :: IO ()
 main = do
   opts         <- processCLIOptions
@@ -22,6 +27,7 @@ main = do
   case mconf of
     Nothing   -> putStrLn ("Couldn't load " ++ show confFile) >> exitWith (ExitFailure 1)
     Just conf -> mainWithConf opts conf
+-}
 
 -- TODO: Combine opts and conf into an execution enviroment
 
@@ -31,7 +37,7 @@ mainWithConf opts conf = do
   inp  <- T.readFile (optsWorkOnFile opts)
   let tks  = tokenize inp
   let sugs = flip runReader dict
-           $ mapM (spellcheckSentence (dictVerbosity conf)) tks
+           $ mapM (spellcheckSentence (optsVerb opts)) tks
   mapM_ (putStrLn . show) (concat sugs)
   
 loadSyntaxDictionary :: HSpellConfig -> IO Dict

@@ -7,6 +7,7 @@ module Text.HSpell.Base.Suggestion where
 
 import qualified Data.Text  as T
 import qualified Data.Set   as S
+import qualified Data.Array as A
 -------------------------------
 import Text.HSpell.Base.Types
 
@@ -42,8 +43,8 @@ data Suggest = Suggest
 data Subst = Subst Section Text
 
 -- |Executes a sequence of substitutions
-executeSubsts :: [Subst] -> [Text] -> [Text]
-executeSubsts s = applyLineOps (substsToLineOps s)
+executeSubsts :: [Subst] -> HSpellInFile -> [Text]
+executeSubsts s = applyLineOps (substsToLineOps s) . A.elems
 
 -- |A 'LineOp' describes an operation to be performed within a line.
 -- Take the following three lines as an example:

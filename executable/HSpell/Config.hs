@@ -16,7 +16,6 @@ data HSpellConfig = HSpellConfig
   { dictionaries     :: [FilePath]
   , dictMaxDist      :: Int
   , dictPrefixLength :: Int
-  , dictVerbosity    :: SymSpellVerbosity
   } deriving (Eq , Show , Generic)
 
 deriving instance Generic SymSpellVerbosity
@@ -29,7 +28,6 @@ instance FromJSON HSpellConfig where
         <$> c .:? "dictionaries"      .!= []
         <*> c .:? "dictMaxDist"       .!= 2
         <*> c .:? "dictPrefixLength"  .!= 4
-        <*> c .:? "dictVerbosity"     .!= Closest
 
 loadConfigFromFile :: FilePath -> IO (Maybe HSpellConfig)
 loadConfigFromFile path = decode' <$> BS.readFile path
