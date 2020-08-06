@@ -12,12 +12,14 @@ import           Control.Monad.Reader
 import Lens.Micro
 import Lens.Micro.TH
 
+import qualified Brick.BChan          as B
 import qualified Brick.Main           as B
 import qualified Brick.Types          as B
 import qualified Brick.AttrMap        as B
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Core   as B
 import qualified Brick.Widgets.Center as B
+import qualified Brick.Widgets.Edit   as B
 
 import qualified Graphics.Vty as V
 
@@ -211,47 +213,92 @@ instance Ord (Auxiliar t) where
   compare _ _ = EQ
 
 data SugButtonName
-  = SugBut_AcceptSession
+  = SugBut_Accept
   | SugBut_Insert
-  | SugBut_ReplaceFor (Auxiliar T.Text)
+  | SugBut_Replace
   | SugBut_Sug Char
   deriving (Eq , Show , Ord)
+
+data SugUserResponse
+  = SUR_Accept
+  | SUR_Insert
+  | SUR_Replace (Maybe T.Text)
+  | SUR_Option Char
+  deriving (Eq , Show , Ord)
+
+convertToSUR :: SugName -> Maybe SugUserResponse
+convertToSUR (Sug_Button SugBut_Accept)  = Just $ SUR_Accept
+convertToSUR (Sug_Button SugBut_Insert)  = Just $ SUR_Insert
+convertToSUR (Sug_Button SugBut_Replace) = Just $ SUR_Replace Nothing
+convertToSUR (Sug_Button (SugBut_Sug c)) = Just $ SUR_Option c
+convertToSUR _                           = Nothing
+
+btnNameWasResponse :: SugButtonName -> SugUserResponse -> Bool
+btnNameWasResponse SugBut_Accept  SUR_Accept = True
+btnNameWasResponse SugBut_Insert  SUR_Insert = True
+btnNameWasResponse SugBut_Replace (SUR_Replace _) = True
+btnNameWasResponse (SugBut_Sug c) (SUR_Option c') = c == c'
+btnNameWasResponse _ _ = False
 
 data SugName
   = Sug_LineSelection
   | Sug_ButtonGrid
+  | Sug_Editor
   | Sug_Button SugButtonName
   deriving (Eq , Show , Ord)
 
 data SugUI = SugUI
   { _suiLinesSelection :: LinesSelection SugName
   , _suiButtonGrid     :: ButtonGrid SugName
-  , _suiUserResponse   :: Maybe SugButtonName
+  , _suiInputField     :: B.Editor T.Text SugName
+  , _suiUserResponse   :: Maybe SugUserResponse
   }
 makeLenses ''SugUI
 
+-- |We must draw an editor if the user presses 'r'
+sugUIWithEditor :: SugUI -> Bool
+sugUIWithEditor sui = sui ^. suiUserResponse == Just (SUR_Replace Nothing)
+
 drawSugUI :: SugUI -> [B.Widget SugName]
-drawSugUI sui = [ w ]
+drawSugUI sui =
+  if sugUIWithEditor sui
+  then [ editor , w ]
+  else [ w ]
   where
+    editor = B.center $ B.hLimit 45 $ B.vLimit 7
+           $ B.borderWithLabel (B.str "Replace For: (Ctrl + D to accept)")
+           $ B.renderEditor (B.txt . T.unlines) True (sui ^. suiInputField)
+    
     w = B.vBox [ B.border $ renderLinesSelection (sui ^. suiLinesSelection)
                , renderButtonGrid' dynLabelFun (sui ^. suiButtonGrid)
                ]
 
     dynLabelFun :: V.Attr -> V.Attr -> (T.Text , SugName) -> V.Image
-    dynLabelFun lblAttr selAttr (lbl , n)
-      | Just n == fmap Sug_Button (sui ^. suiUserResponse) =
+    dynLabelFun lblAttr selAttr (lbl , Sug_Button n)
+      | (btnNameWasResponse n <$> sui ^. suiUserResponse) == Just True =
           V.text' selAttr $ case sui ^. suiUserResponse of
-                              Just (SugBut_ReplaceFor (Aux t)) -> t
+                              Just (SUR_Replace (Just t)) -> t
                               _ -> lbl
       | otherwise = V.text' lblAttr lbl
 
-eventSugUI :: SugUI -> B.BrickEvent SugName () -> B.EventM SugName (B.Next SugUI)
-eventSugUI sui (B.VtyEvent (V.EvKey (V.KChar 'q') [])) = B.halt sui
-eventSugUI sui (B.VtyEvent vev) = do
-  mbut <- handleButtonGridEvent vev (sui ^. suiButtonGrid)
-  case mbut of
-    Just (Sug_Button but) -> B.continue (sui & suiUserResponse .~ Just but)
-    _                     -> B.continue sui
+eventSugUI :: SugUI -> B.BrickEvent SugName SugUserResponse
+           -> B.EventM SugName (B.Next SugUI)
+eventSugUI sui (B.VtyEvent ev)
+  | sugUIWithEditor sui =
+      case ev of
+        -- Enter exit's the editor
+        V.EvKey (V.KChar 'd') [V.MCtrl]
+          -> B.continue (sui & suiUserResponse .~ Just (SUR_Replace (Just . T.unwords $ B.getEditContents (sui ^. suiInputField)))
+                             & suiInputField .~ (initialSt ^. suiInputField))
+        -- otherwise, process it as part of the editor input
+        _ -> B.continue =<< B.handleEventLensed sui suiInputField B.handleEditorEvent ev
+  -- If the editor is not on the screen,
+  | otherwise = case ev of
+      V.EvKey (V.KChar 'q') []
+        -> B.halt sui
+      _ -> do
+        mbut <- handleButtonGridEvent ev (sui ^. suiButtonGrid)
+        B.continue (sui & suiUserResponse .~ (mbut >>= convertToSUR))
 eventSugUI sui _ = B.continue sui
 
         
@@ -265,10 +312,17 @@ attrMapSugUI = B.attrMap V.defAttr
   , (buttonGridKeyAttr        , V.defAttr `V.withStyle` V.dim)
   ]
 
-app :: B.App SugUI () SugName
+chooseCursorSugUI :: SugUI -> [B.CursorLocation SugName] -> Maybe (B.CursorLocation SugName)
+chooseCursorSugUI sug ls 
+  | sugUIWithEditor sug = case filter (\c -> c ^. B.cursorLocationNameL == Just Sug_Editor) ls of
+                            [r] -> Just r
+                            _   -> Nothing
+  | otherwise = Nothing                           
+
+app :: B.App SugUI SugUserResponse SugName
 app = B.App
   { B.appDraw         = drawSugUI
-  , B.appChooseCursor = \_ _ -> Nothing
+  , B.appChooseCursor = chooseCursorSugUI
   , B.appHandleEvent  = eventSugUI
   , B.appStartEvent   = return
   , B.appAttrMap      = const attrMapSugUI
@@ -292,9 +346,9 @@ initialButtons = ButtonGrid
   , _bgButtons = baseButtons ++ map mkButton "1234567890"
   } where
     baseButtons =
-      [('a' , ("acccept" , Sug_Button SugBut_AcceptSession))
+      [('a' , ("acccept" , Sug_Button SugBut_Accept))
       ,('i' , ("insert"  , Sug_Button SugBut_Insert))
-      ,('r' , ("replace" , Sug_Button (SugBut_ReplaceFor (Aux ""))))
+      ,('r' , ("replace" , Sug_Button SugBut_Replace))
       ]
       
     mkButton c = (c , (T.pack $ "Button " ++ show c , Sug_Button (SugBut_Sug c)))
@@ -304,9 +358,13 @@ initialSt = SugUI
   { _suiButtonGrid = initialButtons
   , _suiLinesSelection = initialLines
   , _suiUserResponse = Nothing
+  , _suiInputField = B.editorText Sug_Editor Nothing T.empty
   }
 
 tester :: IO ()
 tester = do
-  _finalState <- B.defaultMain app initialSt
+  eventChan <- B.newBChan 10
+  let buildVty = V.mkVty V.defaultConfig
+  initialVty <- buildVty
+  _finalState <- B.customMain initialVty buildVty (Just eventChan) app initialSt
   return ()
