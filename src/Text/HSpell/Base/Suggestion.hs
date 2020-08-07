@@ -11,6 +11,7 @@ import qualified Data.Array as A
 -------------------------------
 import Text.HSpell.Base.Types
 
+{-
 -- |Provides an abstract functionality for resolving sugestions,
 -- the idea being that given a sentence @txt = "a b c"@; and a suggestion
 -- that says, for instance, @s = SyntaxSug 1 ["B", "bb"]@, we will output
@@ -24,6 +25,7 @@ class MonadSuggest m where
   -- TODO: lots of things!
   -- ignoreSuggestion :: either Always Session Once -> Suggest -> m ()
   -- ...
+-}
 
 -- |A 'Suggest' presents the user with a number of options
 -- for changing a 'Section' of the file.
@@ -31,6 +33,15 @@ data Suggest = Suggest
   { sugSection      :: Section
   , sugAlternatives :: S.Set Text
   } deriving Show
+
+-- |A suggestion is resolved through accepting the misspell,
+-- insert the misspell in the dictionary or replacing for
+-- some text.
+data SugResult
+  = SugAccept
+  | SugInsert
+  | SugReplaceFor Text
+  deriving (Eq , Show)
 
 -- |As the user makes decisions about which suggestions to
 -- adopt, we record them in as 'Substitution's to be performed.

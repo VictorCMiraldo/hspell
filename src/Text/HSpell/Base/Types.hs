@@ -6,15 +6,16 @@ module Text.HSpell.Base.Types
   , Token(..) , Tokenizer
   , Sentence
     -- * Input Files
-  , HSpellInFile , getFileSection
+  , HSpellInFile , getFileSection , getFileSectionWithCtx
+  , hspellInFileFromText
     -- * Re-exports for convenience
   , T.Text
   ) where
 
-import Control.Arrow ((***))
-
 import qualified Data.Text  as T
 import qualified Data.Array as A
+--------------------------------
+import Text.HSpell.Util
 
 -- |Specifies a location in a file
 data Loc = Loc
@@ -87,6 +88,11 @@ type Sentence = [Token]
 -- and we can display the contents of the file /as they are/ to the user.
 type HSpellInFile = A.Array Int T.Text
 
+hspellInFileFromText :: T.Text -> HSpellInFile
+hspellInFileFromText t =
+  let ls = T.lines t
+   in A.array (0 , length ls - 1) $ zip [0..] ls
+
 -- |Applies 'T.drop' to the first line and 'T.take' to the last.
 --
 -- > cutFirstLast 3 6 ["abcdefg"]           = ("abc", ["def"] , "g")
@@ -105,11 +111,6 @@ cutFirstLast start end (t:ts) =
       let (bef , r)  = T.splitAt start t
           (r' , aft) = T.splitAt end t'
        in (bef , r:ts' ++ [r'] , aft)
- where
-   snoc :: [a] -> Maybe ([a] , a)
-   snoc []     = Nothing
-   snoc [a]    = Just ([] , a)
-   snoc (x:xs) = fmap ((x:) *** id) $ snoc xs
 
 -- |Given some context lines to be displayed and a section, returns
 -- @ctx@ lines before the section, the extracted section and @ctx@ lines

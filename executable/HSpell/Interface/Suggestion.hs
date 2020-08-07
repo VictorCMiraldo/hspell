@@ -2,9 +2,10 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE TemplateHaskell       #-}
-module HSpell.Interface where
+module HSpell.Interface.Suggestion (askSuggestion) where
 
 import qualified Data.Text as T
+import qualified Data.Set  as S
 import           Control.Arrow ((***))
 import           Control.Monad.State
 import           Control.Monad.Reader
@@ -12,7 +13,6 @@ import           Control.Monad.Reader
 import Lens.Micro
 import Lens.Micro.TH
 
-import qualified Brick.BChan          as B
 import qualified Brick.Main           as B
 import qualified Brick.Types          as B
 import qualified Brick.AttrMap        as B
@@ -22,6 +22,11 @@ import qualified Brick.Widgets.Center as B
 import qualified Brick.Widgets.Edit   as B
 
 import qualified Graphics.Vty as V
+------------------------------
+import Text.HSpell.Base
+import Text.HSpell.Util
+------------------------------
+import HSpell.Env
 
 ------------------------------
 -- * LineSelection Widget * --
@@ -161,8 +166,7 @@ buttonGridLabelAttr = buttonGridAttr <> "label"
 buttonGridSelectedAttr :: B.AttrName
 buttonGridSelectedAttr = buttonGridAttr <> "selected"
 
-renderButtonGrid' :: (Eq n) => (V.Attr -> V.Attr -> (T.Text , n) -> V.Image)
-                  -> ButtonGrid n -> B.Widget n
+renderButtonGrid' :: (n -> Bool) -> ButtonGrid n -> B.Widget n
 renderButtonGrid' sel bg = B.Widget B.Greedy B.Fixed $ do
   -- Usual shenanigans: get available width and understand
   -- how many buttons we'll place in each row based on
@@ -176,11 +180,11 @@ renderButtonGrid' sel bg = B.Widget B.Greedy B.Fixed $ do
   lblAttr <- B.lookupAttrName buttonGridLabelAttr 
   selAttr <- B.lookupAttrName buttonGridSelectedAttr 
   -- And render the buttons:
-  let buttons = flip map (bg ^. bgButtons) $ \(c , lbl) ->
+  let buttons = flip map (bg ^. bgButtons) $ \(c , (lbl , n)) ->
         V.resizeWidth maxW $
         V.horizCat [ V.text' keyAttr (T.singleton c)
                    , V.text' V.defAttr (T.pack ") ")
-                   , sel lblAttr selAttr lbl
+                   , V.text' (if sel n then selAttr else lblAttr) lbl
                    ]
   
   -- Group them by chunks and render:
@@ -255,53 +259,60 @@ data SugUI = SugUI
   }
 makeLenses ''SugUI
 
--- |We must draw an editor if the user presses 'r'
-sugUIWithEditor :: SugUI -> Bool
-sugUIWithEditor sui = sui ^. suiUserResponse == Just (SUR_Replace Nothing)
+-- |We switch focus to the editor if the user presses 'r'
+sugUIEditorFocus :: SugUI -> Bool
+sugUIEditorFocus sui = sui ^. suiUserResponse == Just (SUR_Replace Nothing)
 
 drawSugUI :: SugUI -> [B.Widget SugName]
-drawSugUI sui =
-  if sugUIWithEditor sui
-  then [ editor , w ]
-  else [ w ]
+drawSugUI sui = [ B.joinBorders w ]
   where
-    editor = B.center $ B.hLimit 45 $ B.vLimit 7
-           $ B.borderWithLabel (B.str "Replace For: (Ctrl + D to accept)")
-           $ B.renderEditor (B.txt . T.unlines) True (sui ^. suiInputField)
-    
     w = B.vBox [ B.border $ renderLinesSelection (sui ^. suiLinesSelection)
-               , renderButtonGrid' dynLabelFun (sui ^. suiButtonGrid)
+               , buttonsBorder $ B.padRight B.Max $ renderButtonGrid' isSelected (sui ^. suiButtonGrid)
+               , editorBorder  $ B.renderEditor (B.txt . T.unlines) True (sui ^. suiInputField)
                ]
 
-    dynLabelFun :: V.Attr -> V.Attr -> (T.Text , SugName) -> V.Image
-    dynLabelFun lblAttr selAttr (lbl , Sug_Button n)
-      | (btnNameWasResponse n <$> sui ^. suiUserResponse) == Just True =
-          V.text' selAttr $ case sui ^. suiUserResponse of
-                              Just (SUR_Replace (Just t)) -> t
-                              _ -> lbl
-      | otherwise = V.text' lblAttr lbl
+    mkLabel focus text = B.padRight B.Max
+                       $ (if focus then B.withAttr buttonGridSelectedAttr else id)
+                       $ B.str text
 
-eventSugUI :: SugUI -> B.BrickEvent SugName SugUserResponse
+    buttonsLabel = mkLabel (not $ sugUIEditorFocus sui) "Options:"
+    editorLabel  = mkLabel (sugUIEditorFocus sui) "Input:"
+
+    buttonsBorder e = B.border $ B.vLimit 10 (B.hLimit 14 (B.vCenter buttonsLabel) B.<+> B.vBorder B.<+> e)
+    editorBorder e  = B.border $ B.vLimit 3  (B.hLimit 14 (B.vCenter editorLabel) B.<+> B.vBorder B.<+> e)
+
+    isSelected :: SugName -> Bool
+    isSelected (Sug_Button n) = (btnNameWasResponse n <$> sui ^. suiUserResponse) == Just True
+    isSelected _              = False
+   
+eventSugUI :: SugUI -> B.BrickEvent SugName e
            -> B.EventM SugName (B.Next SugUI)
 eventSugUI sui (B.VtyEvent ev)
-  | sugUIWithEditor sui =
+  | sugUIEditorFocus sui =
       case ev of
         -- Enter exit's the editor
-        V.EvKey (V.KChar 'd') [V.MCtrl]
-          -> B.continue (sui & suiUserResponse .~ Just (SUR_Replace (Just . T.unwords $ B.getEditContents (sui ^. suiInputField)))
-                             & suiInputField .~ (initialSt ^. suiInputField))
+        V.EvKey V.KEnter []
+          -> B.halt (sui & suiUserResponse .~ Just (SUR_Replace (Just . T.unwords $ B.getEditContents (sui ^. suiInputField)))) 
+
+        -- A shift+enter gets sent to the editor as enter
+        -- TODO: Terminal doesn't send shift enter... lol
+        V.EvKey V.KEnter [V.MShift]
+          -> B.continue =<< B.handleEventLensed sui suiInputField B.handleEditorEvent (V.EvKey V.KEnter [])
+
         -- otherwise, process it as part of the editor input
         _ -> B.continue =<< B.handleEventLensed sui suiInputField B.handleEditorEvent ev
-  -- If the editor is not on the screen,
+
+  -- If the editor is not focused, process options
   | otherwise = case ev of
       V.EvKey (V.KChar 'q') []
         -> B.halt sui
       _ -> do
         mbut <- handleButtonGridEvent ev (sui ^. suiButtonGrid)
-        B.continue (sui & suiUserResponse .~ (mbut >>= convertToSUR))
+        case mbut >>= convertToSUR of
+          Nothing  -> B.continue sui
+          Just but -> B.halt (sui & suiUserResponse .~ Just but)
 eventSugUI sui _ = B.continue sui
 
-        
 attrMapSugUI :: B.AttrMap
 attrMapSugUI = B.attrMap V.defAttr
   [ (linesSelectionLineNoAttr , V.defAttr `V.withStyle` V.italic
@@ -314,12 +325,12 @@ attrMapSugUI = B.attrMap V.defAttr
 
 chooseCursorSugUI :: SugUI -> [B.CursorLocation SugName] -> Maybe (B.CursorLocation SugName)
 chooseCursorSugUI sug ls 
-  | sugUIWithEditor sug = case filter (\c -> c ^. B.cursorLocationNameL == Just Sug_Editor) ls of
+  | sugUIEditorFocus sug = case filter (\c -> c ^. B.cursorLocationNameL == Just Sug_Editor) ls of
                             [r] -> Just r
                             _   -> Nothing
   | otherwise = Nothing                           
 
-app :: B.App SugUI SugUserResponse SugName
+app :: B.App SugUI e SugName
 app = B.App
   { B.appDraw         = drawSugUI
   , B.appChooseCursor = chooseCursorSugUI
@@ -328,43 +339,67 @@ app = B.App
   , B.appAttrMap      = const attrMapSugUI
   }
 
-initialLines :: LinesSelection SugName
-initialLines = LinesSelection
-  { _lsName   = Sug_LineSelection
-  , _lsLineNo = 98
-  , _lsLines  = [line1,line2,line3,line4,line5]
-  } where
-      line1 = [Right "Some text on the first line with no arkup"]
-      line2 = [Right "on the second " , Left True , Right "we start to add some markup"]
-      line3 = [Right "then we go on and on and on"]
-      line4 = [Right "and finally " , Left False , Right " we stop the markup"]
-      line5 = [Right "and finish the text"]
-
-initialButtons :: ButtonGrid SugName
-initialButtons = ButtonGrid
-  { _bgName = Sug_ButtonGrid
-  , _bgButtons = baseButtons ++ map mkButton "1234567890"
-  } where
-    baseButtons =
+sugUI :: Int                  -- ^ LineNo
+      -> [LinesSelectionLine] -- ^ Lines to display
+      -> S.Set Text           -- ^ Options for buttons
+      -> SugUI
+sugUI ln ls opts = SugUI
+  { _suiButtonGrid = ButtonGrid (mkOptions opts) Sug_ButtonGrid
+  , _suiUserResponse = Nothing
+  , _suiInputField = B.editorText Sug_Editor (Just 3) T.empty
+  , _suiLinesSelection = LinesSelection Sug_LineSelection ln ls
+  }
+ where
+   baseButtons =
       [('a' , ("acccept" , Sug_Button SugBut_Accept))
       ,('i' , ("insert"  , Sug_Button SugBut_Insert))
       ,('r' , ("replace" , Sug_Button SugBut_Replace))
       ]
-      
-    mkButton c = (c , (T.pack $ "Button " ++ show c , Sug_Button (SugBut_Sug c)))
 
-initialSt :: SugUI
-initialSt = SugUI
-  { _suiButtonGrid = initialButtons
-  , _suiLinesSelection = initialLines
-  , _suiUserResponse = Nothing
-  , _suiInputField = B.editorText Sug_Editor Nothing T.empty
-  }
+   mkOptions :: S.Set Text -> [(Char , (Text , SugName))]
+   mkOptions s = baseButtons
+              ++ map (\(c , t) -> (c , (t , Sug_Button (SugBut_Sug c))))
+                     (zip buttonLabels (S.toList s))
 
-tester :: IO ()
-tester = do
-  eventChan <- B.newBChan 10
-  let buildVty = V.mkVty V.defaultConfig
-  initialVty <- buildVty
-  _finalState <- B.customMain initialVty buildVty (Just eventChan) app initialSt
-  return ()
+   buttonLabels = "1234567890qwetyuopsdfghjkl"
+
+makeSugUI :: (Monad m) => Suggest -> ReaderT HSpellEnv m SugUI
+makeSugUI (Suggest sect opts) = do
+  f <- asks envInput
+  let ls = fileSectToLinesSelect f
+  let ln = max 0 (lLine (fst sect) - ctxLines)
+  return $ sugUI ln ls opts
+ where
+   ctxLines = 3 -- TODO: configure?
+   
+   fileSectToLinesSelect :: HSpellInFile -> [LinesSelectionLine]
+   fileSectToLinesSelect f =
+     let (bef , (prf , x , suf) , aft) = getFileSectionWithCtx ctxLines sect f
+      in (\mid -> (map ((:[]) . Right) bef) ++ mid ++ (map ((:[]) . Right) aft))
+       $ case x of
+           []      -> error "Empty selection?"
+           (x0:xs) -> case snoc xs of
+                        Nothing         -> [[Right prf , Left True , Right x0
+                                           , Left False , Right prf]]
+                        Just (xs' , xN) -> [[Right prf , Left True , Right x0]]
+                                        ++ map ((:[]) . Right) xs'
+                                        ++ [[Right xN , Left False , Right suf]]
+
+convertResult :: SugUI -> SugUserResponse -> Maybe SugResult
+convertResult _ SUR_Accept = Just SugAccept
+convertResult _ SUR_Insert = Just SugInsert
+convertResult _ (SUR_Replace (Just r)) = Just $ SugReplaceFor r
+convertResult u (SUR_Option c) =
+  case lookup c (u ^. suiButtonGrid ^. bgButtons) of
+    Nothing      -> Nothing
+    Just (t , _) -> Just $ SugReplaceFor t
+convertResult _ _ = Nothing
+
+askSuggestion :: Suggest -> ReaderT HSpellEnv IO (Either String SugResult)
+askSuggestion sug = do
+  st  <- makeSugUI sug
+  res <- lift $ B.defaultMain app st
+  return $ case res ^. suiUserResponse of
+    Nothing -> Left "no user response"
+    Just ur -> maybe (Left "no valid result") Right $ convertResult st ur
+

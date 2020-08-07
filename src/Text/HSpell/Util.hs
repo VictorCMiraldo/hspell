@@ -1,6 +1,7 @@
 
 module Text.HSpell.Util where
 
+import           Control.Arrow ((***))
 import qualified Data.Text as T
 import           Data.List (sort)
 
@@ -35,3 +36,8 @@ deletesUpToN n xs = concatMap (flip deletesN xs) [1..n]
 textDeletesN :: Int -> T.Text -> [T.Text]
 textDeletesN i = map T.concat . deletesUpToN i . T.chunksOf 1 
 
+
+snoc :: [a] -> Maybe ([a] , a)
+snoc []     = Nothing
+snoc [a]    = Just ([] , a)
+snoc (x:xs) = fmap ((x:) *** id) $ snoc xs
