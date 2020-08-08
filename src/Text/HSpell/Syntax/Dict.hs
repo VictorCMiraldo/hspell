@@ -57,7 +57,7 @@ data Dict = Dict
 -- TODO: should it really call error? I don't think so.
 combineDicts :: DictConfig -> [Dict] -> Dict
 combineDicts dc []       = empty dc
-combineDicts dc [d]      = d
+combineDicts _  [d]      = d
 combineDicts dc ds@(_:_) =
   let cors = map dCorrect ds
       dels = map dDeletes ds

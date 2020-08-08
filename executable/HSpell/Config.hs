@@ -5,8 +5,6 @@
 module HSpell.Config where
 
 import           GHC.Generics
-import           System.IO
-import           Control.Monad
 import           Data.Aeson
 import qualified Data.ByteString.Lazy as BS
 -----

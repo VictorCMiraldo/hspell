@@ -54,11 +54,11 @@ section p = do
 
 -- |Parses a word in the form of a 'Token'
 tokenWord :: HSpellParser Token
-tokenWord = uncurry Token <$> section word
+tokenWord = uncurry (Token TT_Word) <$> section word
   
 -- |Parses some punctuation sign with its source location
 tokenPunct :: HSpellParser Token
-tokenPunct = uncurry Token <$> section punct
+tokenPunct = uncurry (Token TT_Punct) <$> section punct
 
 -- |Parses the specific token
 hstoken :: String -> HSpellParser ()

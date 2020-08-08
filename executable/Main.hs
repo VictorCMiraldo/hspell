@@ -4,6 +4,7 @@ import           System.Exit
 
 import           Control.Monad.Reader
 
+import qualified Data.Text    as T
 import qualified Data.Text.IO as T
 
 import           Text.HSpell.Base
@@ -24,27 +25,36 @@ main = do
   mconf        <- loadConfigFromFile confFile
   case mconf of
     Nothing   -> putStrLn ("Couldn't load " ++ show confFile) >> exitWith (ExitFailure 1)
-    Just conf -> mainWithConf opts conf
+    Just conf -> mainWithConf opts conf >>= exitWith
 
 -- TODO: Combine opts and conf into an execution enviroment
-
-mainWithConf :: HSpellOptions -> HSpellConfig -> IO ()
+mainWithConf :: HSpellOptions -> HSpellConfig -> IO ExitCode
 mainWithConf opts conf = do
   dict <- loadSyntaxDictionary conf
   inp  <- T.readFile (optsWorkOnFile opts)
   runReaderT (mainWithEnv inp) $ HSpellEnv
     (hspellInFileFromText inp) dict opts conf
   
+responseToSubst :: Suggest -> SugResult -> IO [Subst]
+responseToSubst _ SugAccept         = putStrLn "Accept is not yet implemented" >> return [] 
+responseToSubst _ SugInsert         = putStrLn "Insert is not yet implemented" >> return []
+responseToSubst s (SugReplaceFor t) = return [Subst (sugSection s) t]
 
-mainWithEnv :: Text -> ReaderT HSpellEnv IO ()
+mainWithEnv :: Text -> ReaderT HSpellEnv IO ExitCode
 mainWithEnv inp = do
   dict <- asks envDict
   opts <- asks envCLIOpts
   let tks  = tokenize inp
   let sugs = flip runReader dict
            $ mapM (spellcheckSentence (optsVerb opts)) tks
-  res <- mapM askSuggestion (concat sugs)
-  lift $ mapM_ (putStrLn . show) res
+  eres <- sequence <$> mapM askSuggestion (concat sugs)
+  case eres of
+    Left err  -> lift $ putStrLn err >> return (ExitFailure 1)
+    Right res -> do
+      ss   <- concat <$> (lift $ mapM (uncurry responseToSubst) $ zip (concat sugs) res)
+      file <- asks envInput
+      lift $ mapM_ (putStrLn . T.unpack) $ executeSubsts ss file
+      return ExitSuccess
   
 loadSyntaxDictionary :: HSpellConfig -> IO Dict
 loadSyntaxDictionary conf = do

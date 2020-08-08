@@ -309,8 +309,9 @@ eventSugUI sui (B.VtyEvent ev)
       _ -> do
         mbut <- handleButtonGridEvent ev (sui ^. suiButtonGrid)
         case mbut >>= convertToSUR of
-          Nothing  -> B.continue sui
-          Just but -> B.halt (sui & suiUserResponse .~ Just but)
+          Nothing                    -> B.continue sui
+          Just (SUR_Replace Nothing) -> B.continue (sui & suiUserResponse .~ Just (SUR_Replace Nothing))
+          Just but                   -> B.halt     (sui & suiUserResponse .~ Just but)
 eventSugUI sui _ = B.continue sui
 
 attrMapSugUI :: B.AttrMap
@@ -380,7 +381,7 @@ makeSugUI (Suggest sect opts) = do
            []      -> error "Empty selection?"
            (x0:xs) -> case snoc xs of
                         Nothing         -> [[Right prf , Left True , Right x0
-                                           , Left False , Right prf]]
+                                           , Left False , Right suf]]
                         Just (xs' , xN) -> [[Right prf , Left True , Right x0]]
                                         ++ map ((:[]) . Right) xs'
                                         ++ [[Right xN , Left False , Right suf]]

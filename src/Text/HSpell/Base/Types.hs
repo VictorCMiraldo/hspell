@@ -3,7 +3,7 @@ module Text.HSpell.Base.Types
     Loc(..) , loc0 , sameLine , sameCol , sucLine , sucCol
   , Section , sectValid , sectDisj
     -- * Tokens and Type Signatures for dealing with them
-  , Token(..) , Tokenizer
+  , Token(..) , TokenType(..) , Tokenizer
   , Sentence
     -- * Input Files
   , HSpellInFile , getFileSection , getFileSectionWithCtx
@@ -56,11 +56,19 @@ sectValid (s, e) = s < e
 sectDisj :: Section -> Section -> Bool
 sectDisj (s0, e0) (s1 , e1) = e0 < s1 || e1 < s0
 
+-- |'Tokens' that are supposed to be spell checked will be
+-- either words or punctuation marks.
+data TokenType
+  = TT_Word
+  | TT_Punct
+  deriving (Eq , Show)
+
 -- |Finally, we will be spellchecking and performing grammatical
 -- suggestions on streams of 'Token's, where a token is a bunch
 -- of 'Text'
 data Token = Token
-  { tText :: !T.Text
+  { tType :: !TokenType
+  , tText :: !T.Text
   , tSect :: !Section
   } deriving (Eq , Show)
 
