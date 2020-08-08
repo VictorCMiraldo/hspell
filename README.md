@@ -25,3 +25,9 @@ plenty of free time in the past month and decided to build something! :)
   At this point, this repo hosts a proof-of-concept instead of a fully usable tool.
 I hope to get to the point of having a fully usable tool in the future and contributions
 are very welcome.
+
+## Great, I want to give it a try!
+
+Clone the repo, then run ```stack build && stack exec hspell -- test.in```
+
+
