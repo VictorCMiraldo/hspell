@@ -6,7 +6,8 @@ module HSpell.Config where
 
 import           GHC.Generics
 import           Data.Aeson
-import qualified Data.ByteString.Lazy as BS
+import qualified Data.Yaml as Y
+import qualified Data.ByteString as BS
 -----
 import Text.HSpell.Syntax.Dict (SymSpellVerbosity(..))
 
@@ -27,5 +28,5 @@ instance FromJSON HSpellConfig where
         <*> c .:? "dictMaxDist"       .!= 2
         <*> c .:? "dictPrefixLength"  .!= 4
 
-loadConfigFromFile :: FilePath -> IO (Maybe HSpellConfig)
-loadConfigFromFile path = decode' <$> BS.readFile path
+loadConfigFromFile :: FilePath -> IO (Either Y.ParseException HSpellConfig)
+loadConfigFromFile path = Y.decodeEither' <$> BS.readFile path
