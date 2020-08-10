@@ -2,6 +2,7 @@ module Text.HSpell.Grammar.Rule where
 
 import qualified Data.Text as T
 
+import Text.HSpell.Base
 import Text.HSpell.Grammar.Matcher
 
 -- |Encodes a grammatical suggestion; examples include:
@@ -12,9 +13,9 @@ import Text.HSpell.Grammar.Matcher
 -- >   descr: Using 'in order to' is pleonasm.
 --
 -- > grammar:
--- >   match: good in \noum@n
--- >   correct: good at \n
--- >   descr: If you mean skilled in \n, use "at".
+-- >   match: good in \1@\noum
+-- >   correct: good at \1
+-- >   descr: If you mean skilled in \1, use "at".
 --
 data GrammarRule = GrammarRule
   { grMatch       :: Rule Int T.Text

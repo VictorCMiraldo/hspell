@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |Provides a polymorphic recursive linear regexp DSL to match
 -- gramatical rules. Examples include, for instance, matching
 -- on duplicate words:
@@ -11,11 +12,19 @@ module Text.HSpell.Grammar.Matcher
   ( Rule(..)
   , tk , anytk , var
   , match , Match
+  , parseRuleWith , parseWord , parseIntVar , parseSimpleRule
   ) where
 
 import Control.Applicative
 import Control.Monad.State
 import Control.Monad.Reader
+import qualified Text.Parsec.Prim as P
+import Text.Parsec.Combinator
+import Text.Parsec.Char
+import qualified Data.Text as T
+--------------------------
+import Text.HSpell.Base.Parser (HSpellParser, lexeme, word)
+
 
 -- |A rule matching on tokens of type @t@ and registering
 -- variables of type @k@. It is essentially a linear
@@ -39,6 +48,15 @@ data Rule k t
   -- |Optionally matches on a rule
   | Optional (Rule k t)
 
+instance (Show k , Show t) => Show (Rule k t) where
+  show Beginning    = "\\^"
+  show End          = "\\$"
+  show (As r n)     = show n ++ "@(" ++ show r ++ ")"
+  show (Seq as)     = "(Seq " ++ show as ++ ")"
+  show (Choice as)  = "(Choice " ++ show as ++ ")"
+  show (Optional r) = show r ++ "\\?"
+  show (Satisfy _)  = "TK"
+
 -- |Matches a single token
 tk :: (Eq t) => t -> Rule k t
 tk t = Satisfy (return . (==) t)
@@ -58,35 +76,38 @@ ruleStartsAt0 (Seq (r:_)) = ruleStartsAt0 r
 ruleStartsAt0 (Choice rs) = all ruleStartsAt0 rs
 ruleStartsAt0 _           = False
 
--- |A 'matchSt is an offset on the original list and a list
--- of matched identifiers, if any.
-type Match k t = (Int , [(k , t)])
+-- |A 'matchSt is an offset on the original list, a number of matched
+-- tokens and a list of matched identifiers, if any.
+type Match k t = (Int , Int, [(k , t)])
 
--- |Matches a sequence of rules
+-- TODO: Package all of this decently into a "Matcher" monad
+
+-- |Matches a sequence of rules; returns the offset that started
+-- the match and the number of  matched tokens
 matchSeq :: (MonadPlus f , Eq t) => [Rule k t] -> ([t] , Int)
-         -> StateT [(k , t)] f (Int , ([t] , Int))
-matchSeq []     (ts , ix) = return (ix , (ts , ix)) -- unit of product is 1
+         -> StateT [(k , t)] f (Int , Int , ([t] , Int))
+matchSeq []     (ts , ix) = return (ix , 0 , (ts , ix)) -- unit of product is 1
 matchSeq (r:rs) (ts , ix) = do
-  (m , tsix')  <- matchSt r (ts , ix)
-  (_ , tsix'') <- matchSeq rs tsix'
-  return (m , tsix'')
+  (m , c  , tsix')  <- matchSt r (ts , ix)
+  (_ , c' , tsix'') <- matchSeq rs tsix'
+  return (m , c + c' , tsix'')
 
 -- |Matches one of the given rules
-matchOr :: (MonadPlus f , Eq t) => [Rule k t] -> ([t] , Int) -> StateT [(k , t)] f (Int , ([t] , Int))
+matchOr :: (MonadPlus f , Eq t) => [Rule k t] -> ([t] , Int) -> StateT [(k , t)] f (Int , Int , ([t] , Int))
 matchOr []        _         = empty -- unit of sum is 0
 matchOr (r : rs)  (ts , ix) = matchSt r (ts , ix) <|> matchOr rs (ts , ix)
 
 matchSt :: (MonadPlus f, Eq t) => Rule k t -> ([t] , Int)
-        -> StateT [(k , t)] f (Int , ([t] , Int))
+        -> StateT [(k , t)] f (Int , Int , ([t] , Int))
 matchSt Beginning   (ts , ix)
-  | ix == 0   = return (ix , (ts , ix))
+  | ix == 0   = return (ix , 0 , (ts , ix))
   | otherwise = empty
 matchSt End         ([] , ix)
-  = return (ix , ([] , ix))
+  = return (ix , 0 , ([] , ix))
 matchSt (Satisfy f) ((t : ts) , ix) = do
   st <- get
   if runReader (f t) st
-  then return (ix , (ts , ix + 1))
+  then return (ix , 1 , (ts , ix + 1))
   else empty
 -- TODO: this is nasty... what if the rule matches a large portion?
 -- why are we only storing the first matched token
@@ -96,11 +117,11 @@ matchSt (As r k)    (ts@(t:_) , ix) = do
   return res
 matchSt (Seq rs)     (ts , ix) = matchSeq rs (ts , ix)
 matchSt (Choice rs)  (ts , ix) = matchOr  rs (ts , ix)
-matchSt (Optional r) (ts , ix) = matchSt r (ts , ix) <|> return (ix , (ts , ix))
+matchSt (Optional r) (ts , ix) = matchSt r (ts , ix) <|> return (ix , 0 , (ts , ix))
 matchSt _        _             = empty
 
 match' :: (MonadPlus f, Eq t) => Rule k t -> ([t] , Int) -> f (Match k t)
-match' r inp = fmap (\((i , _) , vs) -> (i , vs)) $ runStateT (matchSt r inp) []
+match' r inp = fmap (\((i , e , _) , vs) -> (i , e , vs)) $ runStateT (matchSt r inp) []
 
 match :: (MonadPlus f, Eq t) => Rule k t -> [t] -> f (Match k t)
 match r ts0 
@@ -110,8 +131,59 @@ match r ts0
     go _  []       = empty
     go ix (t : ts) = match' r ((t : ts) , ix) <|> go (ix + 1) ts
 
+-----------------------
+-- * Parsing Rules * --
+-----------------------
+
+parseIntVar :: HSpellParser Int
+parseIntVar = char '\\' >> (read <$> lexeme (many digit))
+
+parseWord :: HSpellParser T.Text
+parseWord = fst <$> word
+
+parseRuleWith :: forall k t . (Eq t , Eq k)
+              => HSpellParser k -> HSpellParser t -> HSpellParser (Rule k t)
+parseRuleWith pVar pTk = pSum
+  where
+    fOnList _ [x] = x
+    fOnList f xs  = f xs
+    
+    pSum = fOnList Choice <$> sepBy (lexeme pSeq) (lexeme $ char '|')
+    
+    pSeq = fOnList Seq <$> many1 pNamed
+
+    pNamed = do
+      mnamed <- optionMaybe (pVar <* char '@')
+      atom   <- pAtom
+      return $ case mnamed of
+        Just name -> atom `As` name
+        Nothing   -> atom
+
+    pAtom :: HSpellParser (Rule k t)
+    pAtom = choice [ pOptEscapedTk
+                   , P.try (lexeme $ char '(') *> lexeme pSum <* lexeme (char ')')
+                   ]
+
+    pOptEscapedTk :: HSpellParser (Rule k t)
+    pOptEscapedTk = do
+      tk0 <- pEscapedTk
+      choice [ P.try (char '\\' >> lexeme (char '?') >> return (Optional tk0))
+             , return tk0 ]
+    
+    pEscapedTk :: HSpellParser (Rule k t)
+    pEscapedTk = P.try $ (tk <$> pTk) P.<|> lexeme (do
+      _ <- char '\\'
+      choice [ P.try (char '.') >> return anytk
+             , P.try (char '^') >> return Beginning
+             , P.try (char '$') >> return End
+             , var <$> pVar
+             ])
+
+
+parseSimpleRule :: HSpellParser (Rule Int T.Text)
+parseSimpleRule = parseRuleWith parseIntVar parseWord
+
 {-
---
 
 test :: Rule Int Char
 test = Choice [ Seq [ anytk , Choice [ tk 'b' , tk 'B' ] `As` 0 , tk 'c' `As` 1 , End ]
@@ -129,19 +201,9 @@ test4 :: [Match Int String]
 test4 = let r = Seq [ anytk `As` 0 , Optional (tk "," `As` 1) , Choice [var 0 , var 1] ]
          in match r (words "a , , b")
 
-
-
-
-
-
 res :: String -> [Match Int Char]
 res str = match test str
 
 resm :: String -> Maybe (Match Int Char)
 resm str = match test str
-
-
--- match :: RuleSet t -> [t] -> [Matches t]
--- match = undefined
-
 -}
