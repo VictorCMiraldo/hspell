@@ -40,6 +40,9 @@ responseToSubst _ SugAccept         = putStrLn "Accept is not yet implemented" >
 responseToSubst _ SugInsert         = putStrLn "Insert is not yet implemented" >> return []
 responseToSubst s (SugReplaceFor t) = return [Subst (sugSection s) t]
 
+-- TODO: run by induction on sentences; then on tokens.
+-- After spell checking an entire sentence, grammar-check it.
+-- 
 mainWithEnv :: Text -> ReaderT HSpellEnv IO ExitCode
 mainWithEnv inp = do
   dict <- asks envDict
