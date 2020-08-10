@@ -136,7 +136,7 @@ match r ts0
 -----------------------
 
 parseIntVar :: HSpellParser Int
-parseIntVar = char '\\' >> (read <$> lexeme (many digit))
+parseIntVar = read <$> lexeme (many digit)
 
 parseWord :: HSpellParser T.Text
 parseWord = fst <$> word
@@ -176,6 +176,10 @@ parseRuleWith pVar pTk = pSum
       choice [ P.try (char '.') >> return anytk
              , P.try (char '^') >> return Beginning
              , P.try (char '$') >> return End
+             -- TODO: introduce better parsers here such as:
+             --   card: parses a cardinal
+             --   ord: parses an ordinal
+             --   noum: parses a noum -- TODO: actually add part-of-speech tagging
              , var <$> pVar
              ])
 

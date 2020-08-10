@@ -1,0 +1,9 @@
+## Matches duplicate words
+- match: 1@\. \1
+  suggest: \1
+  descr: Word \1 is duplicated, are you sure about it?
+
+- match: in order to
+  suggest: to
+  descr: This is a pleonasm, using only 'to' suffices.
+
