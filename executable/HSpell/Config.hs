@@ -12,9 +12,10 @@ import qualified Data.ByteString as BS
 import Text.HSpell.Syntax.Dict (SymSpellVerbosity(..))
 
 data HSpellConfig = HSpellConfig
-  { dictionaries     :: [FilePath]
+  { dictionaryFiles  :: [FilePath]
   , dictMaxDist      :: Int
   , dictPrefixLength :: Int
+  , grammarRuleFiles :: [FilePath]
   } deriving (Eq , Show , Generic)
 
 deriving instance Generic SymSpellVerbosity
@@ -24,9 +25,10 @@ instance FromJSON SymSpellVerbosity
 instance ToJSON   HSpellConfig
 instance FromJSON HSpellConfig where
     parseJSON = withObject "HSpellConfig" $ \c -> HSpellConfig
-        <$> c .:? "dictionaries"      .!= []
+        <$> c .:? "dictionaryFiles"   .!= []
         <*> c .:? "dictMaxDist"       .!= 2
         <*> c .:? "dictPrefixLength"  .!= 4
+        <*> c .:? "grammarRuleFiles"  .!= []
 
 loadConfigFromFile :: FilePath -> IO (Either Y.ParseException HSpellConfig)
 loadConfigFromFile path = Y.decodeEither' <$> BS.readFile path

@@ -17,7 +17,7 @@ import Text.HSpell.Base.Parser
 -- abbreviations neatly; I will leave this for the future, once
 -- we get the general tool going.
 sentences :: HSpellParser [Sentence]
-sentences = many oneSentence <* eof
+sentences = many (lexeme oneSentence) <* eof
   where
     oneSentence = do
       f      <- tokenWord

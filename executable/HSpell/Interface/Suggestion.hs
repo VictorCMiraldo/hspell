@@ -364,7 +364,7 @@ sugUI ln ls opts = SugUI
 
    buttonLabels = "1234567890qwetyuopsdfghjkl"
 
-makeSugUI :: (Monad m) => Suggest -> ReaderT HSpellEnv m SugUI
+makeSugUI :: (Monad m) => Suggest -> HSpellM m SugUI
 makeSugUI (Suggest sect opts) = do
   f <- asks envInput
   let ls = fileSectToLinesSelect f
@@ -396,7 +396,7 @@ convertResult u (SUR_Option c) =
     Just (t , _) -> Just $ SugReplaceFor t
 convertResult _ _ = Nothing
 
-askSuggestion :: Suggest -> ReaderT HSpellEnv IO (Either String SugResult)
+askSuggestion :: Suggest -> HSpellM IO (Either String SugResult)
 askSuggestion sug = do
   st  <- makeSugUI sug
   res <- lift $ B.defaultMain app st

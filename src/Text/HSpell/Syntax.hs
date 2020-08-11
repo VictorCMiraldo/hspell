@@ -34,18 +34,11 @@ makeSyntaxSuggestFor t = Suggest (tSect t) . fixCase
 
 -- |Spellchecks a single token. Outputs a suggestion when a misspell
 -- is detected.
-spellcheckToken :: (MonadReader Dict m)
-                => SymSpellVerbosity -> Token -> m (Maybe Suggest)
-spellcheckToken v t =
+spellcheckToken :: Dict -> SymSpellVerbosity -> Token -> Maybe Suggest
+spellcheckToken d v t =
   case tType t of
     TT_Word -> fmap (makeSyntaxSuggestFor t)
-               <$> spellcheckWord v (T.toLower $ tText t)
-               <$> ask
-    _       -> return Nothing
+               $ spellcheckWord v (T.toLower $ tText t)
+               $ d
+    _       -> Nothing
  
-
--- |Given a sentence, produces the list of syntax suggestions its tokens
-spellcheckSentence :: (MonadReader Dict m)
-                   => SymSpellVerbosity -> Sentence -> m [Suggest]
-spellcheckSentence v s = foldl' (\g -> maybe g (:g)) []
-                     <$> mapM (spellcheckToken v) s

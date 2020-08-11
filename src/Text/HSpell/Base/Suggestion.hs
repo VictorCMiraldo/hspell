@@ -27,6 +27,11 @@ class MonadSuggest m where
   -- ...
 -}
 
+-- TODO: Grammatical suggestions have only one alternative
+-- and carry some more elaborate description; we should have two
+-- suggestion types, really. (moreover, there is no /insert into dict/
+-- option)
+
 -- |A 'Suggest' presents the user with a number of options
 -- for changing a 'Section' of the file.
 data Suggest = Suggest
